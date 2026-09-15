@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-fondo font-sans text-tinta antialiased;
+    min-width: 320px;
+  }
+}
+
+/* Marcadores del mapa (divIcon, sin imágenes externas) */
+.marcador {
+  display: block;
+  width: 22px;
+  height: 22px;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  border: 3px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+.marcador-tinta {
+  background: #0f1115;
+}
+.marcador-acento {
+  background: #0f766e;
+}
+.marcador-alerta {
+  background: #dc2626;
+}
+.marcador-aviso {
+  background: #d97706;
+}
+
+.leaflet-container {
+  font-family: inherit;
+  z-index: 0;
+}
+
+.solo-imprimir {
+  display: none;
+}
+
+@media print {
+  .no-imprimir {
+    display: none !important;
+  }
+  .solo-imprimir {
+    display: block !important;
+  }
+  body {
+    background: #fff;
+  }
+  main {
+    padding: 0 !important;
+    max-width: none !important;
+  }
+}

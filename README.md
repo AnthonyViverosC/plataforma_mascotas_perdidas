@@ -72,6 +72,15 @@ npm run lint       # ESLint
 npm run build      # verificación de tipos + build de producción
 ```
 
+### Despliegue en Vercel
+
+El proyecto ya incluye `vercel.json` (build de Vite y *rewrite* SPA para que `/caso/:id` funcione al recargar).
+
+1. Crea el `.env` con `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` y `SUPABASE_DB_URL` (*Session pooler*, en **Connect** dentro del panel de Supabase). Luego ejecuta `npm run db:aplicar`: aplica los 4 SQL en orden y se niega a correr si el esquema ya existe.
+2. En Vercel, agrega `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY` en *Production*, *Preview* y *Development*. `SUPABASE_DB_URL` **no** va a Vercel.
+3. Despliega con `vercel --prod` o haz *push* a `main` (el repo está conectado).
+4. En Supabase, en **Authentication → URL Configuration**, pon la URL de Vercel como *Site URL*.
+
 ## 6. Credenciales de prueba
 
 Todas las cuentas usan la contraseña **`Prueba2026!`**
