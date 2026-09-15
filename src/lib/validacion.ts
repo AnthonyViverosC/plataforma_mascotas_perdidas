@@ -30,6 +30,9 @@ export const registroSchema = z.object({
 });
 export type DatosRegistro = z.infer<typeof registroSchema>;
 
+/** Datos mínimos para reportar sin crear cuenta (sesión anónima). */
+export const contactoSchema = registroSchema.pick({ nombre: true, telefono: true, aceptoDatos: true });
+
 export const loginSchema = z.object({
   email: z.string().trim().email('Escribe un correo válido.'),
   password: z.string().min(1, 'Escribe tu contraseña.'),

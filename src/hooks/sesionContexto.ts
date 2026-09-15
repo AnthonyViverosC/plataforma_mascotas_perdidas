@@ -5,6 +5,8 @@ import type { Perfil } from '../tipos/tipos';
 export interface ValorSesion {
   sesion: Session | null;
   usuario: User | null;
+  /** Sesión anónima: reportó sin crear cuenta. */
+  anonimo: boolean;
   perfil: Perfil | null;
   cargando: boolean;
   recargarPerfil: () => Promise<void>;

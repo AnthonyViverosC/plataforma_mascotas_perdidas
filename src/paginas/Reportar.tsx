@@ -1,19 +1,19 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Boton, BotonEnlace } from '../componentes/Boton';
-import { AreaTexto, Campo, Selector } from '../componentes/Campo';
-import { IconoCandado, IconoRadar } from '../componentes/Iconos';
+import { AreaTexto, Campo, Casilla, Selector } from '../componentes/Campo';
+import { IconoRadar } from '../componentes/Iconos';
 import { SelectorUbicacion } from '../componentes/Mapa';
 import { SubirFotos } from '../componentes/SubirFotos';
 import { TarjetaCaso } from '../componentes/TarjetaCaso';
-import { Aviso, EncabezadoPagina, EtiquetaSeccion, Tarjeta, Vacio } from '../componentes/ui';
+import { Aviso, Cargando, EncabezadoPagina, EtiquetaSeccion, Tarjeta, Vacio } from '../componentes/ui';
 import { useSesion } from '../hooks/useSesion';
 import { ejecutarCrucesDeReporte, type ResultadoCruceReporte } from '../lib/cruces';
 import { registrarEvento } from '../lib/eventos';
 import { distanciaKm, formatearDistancia, type Punto } from '../lib/geo';
 import { describirMotivos } from '../lib/matching';
 import { mensajeError, supabase } from '../lib/supabase';
-import { aInputFechaLocal, erroresPorCampo, reporteSchema } from '../lib/validacion';
+import { aInputFechaLocal, contactoSchema, erroresPorCampo, reporteSchema } from '../lib/validacion';
 import {
   COLORES,
   ETIQUETA_ESPECIE,
@@ -28,10 +28,12 @@ const pantalla1 = reporteSchema.pick({ foto_url: true, especie: true, punto: tru
 
 /** Reporte de hallazgo o avistamiento: 2 pantallas como máximo (HU D). */
 export function Reportar() {
-  const { usuario } = useSesion();
+  const { usuario, cargando } = useSesion();
   const [params] = useSearchParams();
   const casoRef = params.get('caso');
 
+  const [contacto, setContacto] = useState({ nombre: '', telefono: '', aceptoDatos: false });
+  const [entrando, setEntrando] = useState(false);
   const [paso, setPaso] = useState<1 | 2>(1);
   const [fotos, setFotos] = useState<string[]>([]);
   const [especie, setEspecie] = useState('');
@@ -146,6 +148,24 @@ export function Reportar() {
     setEnviando(false);
   };
 
+  // Sin cuenta: se abre una sesión anónima con nombre y teléfono para que quien encontró al animal sea contactable.
+  const entrarSinCuenta = async (e: FormEvent) => {
+    e.preventDefault();
+    setErrorGeneral(null);
+    const r = contactoSchema.safeParse(contacto);
+    if (!r.success) {
+      setErrores(erroresPorCampo(r.error));
+      return;
+    }
+    setErrores({});
+    setEntrando(true);
+    const { error } = await supabase.auth.signInAnonymously({
+      options: { data: { nombre: r.data.nombre, telefono: r.data.telefono, rol: 'CIUDADANO', acepto_datos: true } },
+    });
+    setEntrando(false);
+    if (error) setErrorGeneral(mensajeError(error));
+  };
+
   if (resultado) {
     return (
       <div className="mx-auto max-w-3xl space-y-4">
@@ -180,6 +200,63 @@ export function Reportar() {
     );
   }
 
+  if (cargando) return <Cargando texto="Cargando…" />;
+
+  if (!usuario) {
+    return (
+      <div className="mx-auto max-w-lg">
+        <EncabezadoPagina
+          etiqueta="Reporte sin cuenta"
+          titulo="Reportar un animal encontrado o avistado"
+          descripcion="No necesitas crear una cuenta. Déjanos tu nombre y un teléfono para que el dueño pueda coordinar la entrega."
+        />
+        {casoReferido && (
+          <Aviso tipo="info" className="mb-4">
+            Aportarás un avistamiento al caso de <strong>{casoReferido.mascota_nombre}</strong>.
+          </Aviso>
+        )}
+        <Tarjeta className="p-5">
+          <form onSubmit={entrarSinCuenta} className="space-y-4" noValidate>
+            <Campo
+              etiqueta="Tu nombre"
+              value={contacto.nombre}
+              onChange={(e) => setContacto((c) => ({ ...c, nombre: e.target.value }))}
+              error={errores.nombre}
+              autoComplete="name"
+            />
+            <Campo
+              etiqueta="Teléfono de contacto"
+              type="tel"
+              inputMode="tel"
+              value={contacto.telefono}
+              onChange={(e) => setContacto((c) => ({ ...c, telefono: e.target.value }))}
+              error={errores.telefono}
+              placeholder="3001234567"
+              ayuda="No se muestra públicamente: solo lo ve el dueño cuando supera la verificación."
+              autoComplete="tel"
+            />
+            <Casilla
+              etiqueta="Acepto el tratamiento de mis datos personales (nombre, teléfono y ubicación) para la búsqueda y recuperación de mascotas."
+              checked={contacto.aceptoDatos}
+              onChange={(e) => setContacto((c) => ({ ...c, aceptoDatos: e.target.checked }))}
+              error={errores.aceptoDatos}
+            />
+            {errorGeneral && <Aviso tipo="alerta">{errorGeneral}</Aviso>}
+            <Boton type="submit" ancho tamano="lg" cargando={entrando}>
+              Continuar sin cuenta
+            </Boton>
+            <p className="text-center text-sm text-suave">
+              ¿Ya tienes cuenta?{' '}
+              <Link to={`/login?volver=${encodeURIComponent('/reportar' + (casoRef ? `?caso=${casoRef}` : ''))}`} className="font-semibold text-acento hover:underline">
+                Inicia sesión
+              </Link>
+            </p>
+          </form>
+        </Tarjeta>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-2xl">
       <EncabezadoPagina
@@ -192,20 +269,6 @@ export function Reportar() {
           Aportarás un avistamiento al caso de <strong>{casoReferido.mascota_nombre}</strong>. Quedará registrado en su historial.
         </Aviso>
       )}
-      {!usuario && (
-        <Aviso tipo="aviso" titulo="Necesitas una cuenta para enviar el reporte" className="mb-4">
-          Puedes ver el formulario, pero para subir la foto y publicar debes{' '}
-          <Link to={`/login?volver=${encodeURIComponent('/reportar' + (casoRef ? `?caso=${casoRef}` : ''))}`} className="font-semibold underline">
-            iniciar sesión
-          </Link>{' '}
-          o{' '}
-          <Link to="/registro" className="font-semibold underline">
-            crear una cuenta
-          </Link>
-          .
-        </Aviso>
-      )}
-
       <div className="mb-4 flex gap-2" aria-hidden="true">
         <span className={`h-1.5 flex-1 rounded-full ${paso >= 1 ? 'bg-acento' : 'bg-borde'}`} />
         <span className={`h-1.5 flex-1 rounded-full ${paso >= 2 ? 'bg-acento' : 'bg-borde'}`} />
@@ -215,13 +278,7 @@ export function Reportar() {
         <form onSubmit={continuar} className="space-y-4" noValidate>
           <Tarjeta className="space-y-3 p-5">
             <EtiquetaSeccion>Foto del animal</EtiquetaSeccion>
-            {usuario ? (
-              <SubirFotos urls={fotos} onCambio={setFotos} usuarioId={usuario.id} carpeta="reportes" maximo={1} error={errores.foto_url} />
-            ) : (
-              <div className="flex items-center gap-2 rounded-lg border border-dashed border-borde p-4 text-sm text-suave">
-                <IconoCandado tamano={16} /> Inicia sesión para subir la foto.
-              </div>
-            )}
+            <SubirFotos urls={fotos} onCambio={setFotos} usuarioId={usuario.id} carpeta="reportes" maximo={1} error={errores.foto_url} />
           </Tarjeta>
           <Tarjeta className="space-y-4 p-5">
             <div className="grid gap-4 sm:grid-cols-2">
@@ -306,7 +363,7 @@ export function Reportar() {
             <Boton variante="secundario" onClick={() => setPaso(1)} disabled={enviando}>
               Atrás
             </Boton>
-            <Boton type="submit" cargando={enviando} disabled={!usuario}>
+            <Boton type="submit" cargando={enviando}>
               Enviar reporte
             </Boton>
           </div>

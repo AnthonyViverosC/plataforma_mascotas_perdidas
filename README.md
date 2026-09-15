@@ -39,7 +39,7 @@ No hay servidor propio: toda la lógica sensible vive en PostgreSQL (RLS, trigge
 ## 3. Crear el proyecto en Supabase
 
 1. Crea un proyecto nuevo en Supabase y espera a que termine de aprovisionarse.
-2. **Authentication → Sign In / Providers → Email**: deja activo *Email* y **desactiva “Confirm email”** (obligatorio). La app no usa confirmación por correo: al registrarse, el usuario entra directamente a su panel.
+2. **Authentication → Sign In / Providers → Email**: deja activo *Email* y **desactiva “Confirm email”** (obligatorio). La app no usa confirmación por correo: al registrarse, el usuario entra directamente a su panel. En la misma sección, **activa “Allow anonymous sign-ins”** (obligatorio): permite reportar hallazgos sin crear cuenta. Quien reporta así solo deja su nombre y teléfono, y la app le abre una sesión anónima con rol `CIUDADANO`.
 3. **SQL Editor**: pega y ejecuta cada archivo **en este orden**, uno por uno:
 
    | Orden | Archivo | Contenido |

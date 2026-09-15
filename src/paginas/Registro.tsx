@@ -8,14 +8,14 @@ import { mensajeError, supabase } from '../lib/supabase';
 import { erroresPorCampo, registroSchema } from '../lib/validacion';
 
 export function Registro() {
-  const { usuario } = useSesion();
+  const { usuario, anonimo } = useSesion();
   const navegar = useNavigate();
   const [datos, setDatos] = useState({ nombre: '', email: '', telefono: '', password: '', rol: '', aceptoDatos: false });
   const [errores, setErrores] = useState<Record<string, string>>({});
   const [errorGeneral, setErrorGeneral] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
 
-  if (usuario) return <Navigate to="/panel" replace />;
+  if (usuario && !anonimo) return <Navigate to="/panel" replace />;
 
   const cambiar = (campo: keyof typeof datos, valor: string | boolean) => setDatos((d) => ({ ...d, [campo]: valor }));
 

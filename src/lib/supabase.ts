@@ -49,6 +49,8 @@ export function mensajeError(error: unknown): string {
   if (/Invalid login credentials/i.test(texto)) return 'Correo o contraseña incorrectos.';
   if (/Email not confirmed/i.test(texto))
     return 'Tu cuenta aún no está activada. Contacta al administrador de la plataforma.';
+  if (/Anonymous sign-ins are disabled/i.test(texto))
+    return 'El reporte sin cuenta no está habilitado en el servidor. Inicia sesión o crea una cuenta.';
   if (/User already registered/i.test(texto)) return 'Ya existe una cuenta con ese correo. Inicia sesión.';
   if (/Password should be/i.test(texto)) return 'La contraseña no cumple los requisitos de seguridad.';
   if (/Database error saving new user/i.test(texto))

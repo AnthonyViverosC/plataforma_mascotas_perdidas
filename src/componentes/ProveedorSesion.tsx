@@ -47,6 +47,7 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
     () => ({
       sesion,
       usuario: sesion?.user ?? null,
+      anonimo: sesion?.user.is_anonymous ?? false,
       perfil,
       cargando: cargandoSesion || cargandoPerfil || (Boolean(uid) && !perfil && cargandoPerfil),
       recargarPerfil: () => cargarPerfil(uid),

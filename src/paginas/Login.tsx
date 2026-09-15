@@ -8,7 +8,7 @@ import { mensajeError, supabase } from '../lib/supabase';
 import { erroresPorCampo, loginSchema } from '../lib/validacion';
 
 export function Login() {
-  const { usuario } = useSesion();
+  const { usuario, anonimo } = useSesion();
   const [params] = useSearchParams();
   const volver = params.get('volver');
   const destino = volver && volver.startsWith('/') && !volver.startsWith('//') ? volver : '/panel';
@@ -19,7 +19,7 @@ export function Login() {
   const [errorGeneral, setErrorGeneral] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
 
-  if (usuario) return <Navigate to={destino} replace />;
+  if (usuario && !anonimo) return <Navigate to={destino} replace />;
 
   const enviar = async (e: FormEvent) => {
     e.preventDefault();
