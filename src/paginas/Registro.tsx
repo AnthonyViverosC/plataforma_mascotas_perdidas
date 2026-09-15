@@ -13,10 +13,9 @@ export function Registro() {
   const [datos, setDatos] = useState({ nombre: '', email: '', telefono: '', password: '', rol: '', aceptoDatos: false });
   const [errores, setErrores] = useState<Record<string, string>>({});
   const [errorGeneral, setErrorGeneral] = useState<string | null>(null);
-  const [confirmar, setConfirmar] = useState(false);
   const [enviando, setEnviando] = useState(false);
 
-  if (usuario && !confirmar) return <Navigate to="/panel" replace />;
+  if (usuario) return <Navigate to="/panel" replace />;
 
   const cambiar = (campo: keyof typeof datos, valor: string | boolean) => setDatos((d) => ({ ...d, [campo]: valor }));
 
@@ -37,27 +36,23 @@ export function Registro() {
         data: { nombre: r.data.nombre, telefono: r.data.telefono, rol: r.data.rol, acepto_datos: true },
       },
     });
-    setEnviando(false);
     if (error) {
+      setEnviando(false);
       setErrorGeneral(mensajeError(error));
       return;
     }
-    if (data.session) navegar('/panel');
-    else setConfirmar(true);
+    // Sin confirmación de correo: si signUp no devolvió sesión, se entra directamente.
+    if (!data.session) {
+      const { error: errorEntrar } = await supabase.auth.signInWithPassword({ email: r.data.email, password: r.data.password });
+      if (errorEntrar) {
+        setEnviando(false);
+        setErrorGeneral(mensajeError(errorEntrar));
+        return;
+      }
+    }
+    setEnviando(false);
+    navegar('/panel');
   };
-
-  if (confirmar) {
-    return (
-      <Tarjeta className="mx-auto max-w-md p-6">
-        <Aviso tipo="exito" titulo="Cuenta creada">
-          Te enviamos un correo a <strong>{datos.email}</strong>. Confirma tu cuenta y luego inicia sesión.
-        </Aviso>
-        <Link to="/login" className="mt-4 block text-center text-sm font-semibold text-acento hover:underline">
-          Ir a iniciar sesión
-        </Link>
-      </Tarjeta>
-    );
-  }
 
   return (
     <div className="mx-auto max-w-lg">

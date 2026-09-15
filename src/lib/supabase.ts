@@ -47,7 +47,8 @@ export function mensajeError(error: unknown): string {
     return 'No tienes permisos para realizar esta acción con tu rol actual.';
   }
   if (/Invalid login credentials/i.test(texto)) return 'Correo o contraseña incorrectos.';
-  if (/Email not confirmed/i.test(texto)) return 'Debes confirmar tu correo antes de iniciar sesión. Revisa tu bandeja de entrada.';
+  if (/Email not confirmed/i.test(texto))
+    return 'Tu cuenta aún no está activada. Contacta al administrador de la plataforma.';
   if (/User already registered/i.test(texto)) return 'Ya existe una cuenta con ese correo. Inicia sesión.';
   if (/Password should be/i.test(texto)) return 'La contraseña no cumple los requisitos de seguridad.';
   if (/Database error saving new user/i.test(texto))
