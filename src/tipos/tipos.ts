@@ -234,7 +234,7 @@ export interface ResultadoLectura {
 export const ETIQUETA_ROL: Record<Rol, string> = {
   PROPIETARIO: 'Propietario',
   CIUDADANO: 'Ciudadano',
-  VETERINARIO: 'Veterinario',
+  VETERINARIO: 'Auxiliar veterinario',
   ADMIN: 'Administrador',
 };
 

@@ -15,7 +15,7 @@ export function RutaProtegida({ roles, children }: { roles?: Rol[]; children: Re
   const { pathname, search } = useLocation();
 
   if (cargando || (usuario && !perfil)) return <Cargando texto="Verificando tu sesión…" />;
-  if (!usuario) return <Navigate to={`/login?volver=${encodeURIComponent(pathname + search)}`} replace />;
+  if (!usuario) return <Navigate to={`/entrar?volver=${encodeURIComponent(pathname + search)}`} replace />;
 
   if (roles && perfil && !roles.includes(perfil.rol)) {
     return (
@@ -27,6 +27,7 @@ export function RutaProtegida({ roles, children }: { roles?: Rol[]; children: Re
         <p className="mt-1 text-sm text-suave">
           Esta pantalla es solo para el rol {roles.map((r) => ETIQUETA_ROL[r]).join(' o ')}. Tu rol actual es {ETIQUETA_ROL[perfil.rol]}.
         </p>
+        <p className="mt-1 text-sm text-suave">Para usarla, cambia de perfil desde el menú superior.</p>
         <BotonEnlace to="/panel" variante="secundario" className="mt-4">
           Volver a mi panel
         </BotonEnlace>

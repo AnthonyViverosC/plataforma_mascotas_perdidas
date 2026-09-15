@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Boton, BotonEnlace } from '../componentes/Boton';
-import { AreaTexto, Campo, Casilla, Selector } from '../componentes/Campo';
+import { AreaTexto, Campo, Selector } from '../componentes/Campo';
+import { FormularioPerfil } from '../componentes/FormularioPerfil';
 import { IconoRadar } from '../componentes/Iconos';
 import { SelectorUbicacion } from '../componentes/Mapa';
 import { SubirFotos } from '../componentes/SubirFotos';
@@ -13,7 +14,7 @@ import { registrarEvento } from '../lib/eventos';
 import { distanciaKm, formatearDistancia, type Punto } from '../lib/geo';
 import { describirMotivos } from '../lib/matching';
 import { mensajeError, supabase } from '../lib/supabase';
-import { aInputFechaLocal, contactoSchema, erroresPorCampo, reporteSchema } from '../lib/validacion';
+import { aInputFechaLocal, erroresPorCampo, reporteSchema } from '../lib/validacion';
 import {
   COLORES,
   ETIQUETA_ESPECIE,
@@ -32,8 +33,6 @@ export function Reportar() {
   const [params] = useSearchParams();
   const casoRef = params.get('caso');
 
-  const [contacto, setContacto] = useState({ nombre: '', telefono: '', aceptoDatos: false });
-  const [entrando, setEntrando] = useState(false);
   const [paso, setPaso] = useState<1 | 2>(1);
   const [fotos, setFotos] = useState<string[]>([]);
   const [especie, setEspecie] = useState('');
@@ -148,24 +147,6 @@ export function Reportar() {
     setEnviando(false);
   };
 
-  // Sin cuenta: se abre una sesión anónima con nombre y teléfono para que quien encontró al animal sea contactable.
-  const entrarSinCuenta = async (e: FormEvent) => {
-    e.preventDefault();
-    setErrorGeneral(null);
-    const r = contactoSchema.safeParse(contacto);
-    if (!r.success) {
-      setErrores(erroresPorCampo(r.error));
-      return;
-    }
-    setErrores({});
-    setEntrando(true);
-    const { error } = await supabase.auth.signInAnonymously({
-      options: { data: { nombre: r.data.nombre, telefono: r.data.telefono, rol: 'CIUDADANO', acepto_datos: true } },
-    });
-    setEntrando(false);
-    if (error) setErrorGeneral(mensajeError(error));
-  };
-
   if (resultado) {
     return (
       <div className="mx-auto max-w-3xl space-y-4">
@@ -215,43 +196,14 @@ export function Reportar() {
             Aportarás un avistamiento al caso de <strong>{casoReferido.mascota_nombre}</strong>.
           </Aviso>
         )}
-        <Tarjeta className="p-5">
-          <form onSubmit={entrarSinCuenta} className="space-y-4" noValidate>
-            <Campo
-              etiqueta="Tu nombre"
-              value={contacto.nombre}
-              onChange={(e) => setContacto((c) => ({ ...c, nombre: e.target.value }))}
-              error={errores.nombre}
-              autoComplete="name"
-            />
-            <Campo
-              etiqueta="Teléfono de contacto"
-              type="tel"
-              inputMode="tel"
-              value={contacto.telefono}
-              onChange={(e) => setContacto((c) => ({ ...c, telefono: e.target.value }))}
-              error={errores.telefono}
-              placeholder="3001234567"
-              ayuda="No se muestra públicamente: solo lo ve el dueño cuando supera la verificación."
-              autoComplete="tel"
-            />
-            <Casilla
-              etiqueta="Acepto el tratamiento de mis datos personales (nombre, teléfono y ubicación) para la búsqueda y recuperación de mascotas."
-              checked={contacto.aceptoDatos}
-              onChange={(e) => setContacto((c) => ({ ...c, aceptoDatos: e.target.checked }))}
-              error={errores.aceptoDatos}
-            />
-            {errorGeneral && <Aviso tipo="alerta">{errorGeneral}</Aviso>}
-            <Boton type="submit" ancho tamano="lg" cargando={entrando}>
-              Continuar sin cuenta
-            </Boton>
-            <p className="text-center text-sm text-suave">
-              ¿Ya tienes cuenta?{' '}
-              <Link to={`/login?volver=${encodeURIComponent('/reportar' + (casoRef ? `?caso=${casoRef}` : ''))}`} className="font-semibold text-acento hover:underline">
-                Inicia sesión
-              </Link>
-            </p>
-          </form>
+        <Tarjeta className="space-y-4 p-5">
+          <FormularioPerfil rol="CIUDADANO" textoBoton="Continuar" />
+          <p className="text-center text-sm text-suave">
+            ¿Eres el dueño o un auxiliar veterinario?{' '}
+            <Link to={`/entrar?volver=${encodeURIComponent('/reportar' + (casoRef ? `?caso=${casoRef}` : ''))}`} className="font-semibold text-acento hover:underline">
+              Elige otro perfil
+            </Link>
+          </p>
         </Tarjeta>
       </div>
     );

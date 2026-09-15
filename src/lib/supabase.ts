@@ -46,13 +46,10 @@ export function mensajeError(error: unknown): string {
     if (e.message && !/row-level security|permission denied/i.test(e.message)) return e.message;
     return 'No tienes permisos para realizar esta acción con tu rol actual.';
   }
-  if (/Invalid login credentials/i.test(texto)) return 'Correo o contraseña incorrectos.';
-  if (/Email not confirmed/i.test(texto))
-    return 'Tu cuenta aún no está activada. Contacta al administrador de la plataforma.';
+  if (/Invalid login credentials/i.test(texto))
+    return 'El perfil de demostración no existe. Ejecuta supabase/seed.sql o entra con tu propio perfil.';
   if (/Anonymous sign-ins are disabled/i.test(texto))
-    return 'El reporte sin cuenta no está habilitado en el servidor. Inicia sesión o crea una cuenta.';
-  if (/User already registered/i.test(texto)) return 'Ya existe una cuenta con ese correo. Inicia sesión.';
-  if (/Password should be/i.test(texto)) return 'La contraseña no cumple los requisitos de seguridad.';
+    return 'La entrada sin cuenta no está habilitada. Activa "Allow anonymous sign-ins" en Supabase → Authentication.';
   if (/Database error saving new user/i.test(texto))
     return 'No pudimos crear tu perfil. Verifica el teléfono y que aceptaste el tratamiento de datos.';
   if (/exceeded the maximum allowed size|Payload too large/i.test(texto) || e.statusCode === '413')

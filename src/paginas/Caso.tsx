@@ -410,8 +410,8 @@ export function Caso() {
               )}
               {!usuario && (
                 <p className="text-center text-xs text-suave">
-                  <Link to={`/login?volver=/caso/${caso.id}`} className="font-semibold text-acento">
-                    Inicia sesión
+                  <Link to={`/entrar?volver=/caso/${caso.id}`} className="font-semibold text-acento">
+                    Elige tu perfil
                   </Link>{' '}
                   para reportar un avistamiento o iniciar una verificación.
                 </p>

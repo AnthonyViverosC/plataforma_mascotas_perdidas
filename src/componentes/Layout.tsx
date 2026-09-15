@@ -23,7 +23,7 @@ const ENLACES: Enlace[] = [
 ];
 
 export function Layout() {
-  const { perfil, usuario, cerrarSesion } = useSesion();
+  const { perfil, usuario, anonimo, cerrarSesion } = useSesion();
   const [menu, setMenu] = useState(false);
   const { pathname } = useLocation();
   const [rutaMenu, setRutaMenu] = useState(pathname);
@@ -33,6 +33,12 @@ export function Layout() {
     setRutaMenu(pathname);
     setMenu(false);
   }
+
+  // Un perfil anónimo no se puede recuperar después de salir: se pide confirmación.
+  const salir = () => {
+    if (anonimo && !window.confirm('Si cambias de perfil no podrás volver a este (tus mascotas y casos quedan guardados). ¿Continuar?')) return;
+    void cerrarSesion();
+  };
 
   const visibles = ENLACES.filter((e) => {
     if (e.roles) return perfil && e.roles.includes(perfil.rol);
@@ -78,23 +84,18 @@ export function Layout() {
                 <Campana usuarioId={usuario.id} />
                 <button
                   type="button"
-                  onClick={() => cerrarSesion()}
+                  onClick={salir}
                   className="hidden h-9 w-9 items-center justify-center rounded-full border border-borde bg-white text-suave hover:text-tinta sm:flex"
-                  aria-label="Cerrar sesión"
-                  title="Cerrar sesión"
+                  aria-label="Cambiar de perfil"
+                  title="Cambiar de perfil"
                 >
                   <IconoSalir tamano={16} />
                 </button>
               </>
             ) : (
-              <div className="hidden items-center gap-2 sm:flex">
-                <Link to="/login" className="px-2 text-[13px] font-medium text-suave hover:text-tinta">
-                  Iniciar sesión
-                </Link>
-                <Link to="/registro" className="rounded-lg bg-tinta px-3 py-2 text-[13px] font-medium text-white hover:bg-black">
-                  Crear cuenta
-                </Link>
-              </div>
+              <Link to="/entrar" className="hidden rounded-lg bg-tinta px-3 py-2 text-[13px] font-medium text-white hover:bg-black sm:block">
+                Entrar
+              </Link>
             )}
             <button
               type="button"
@@ -129,19 +130,14 @@ export function Layout() {
                   <NavLink to="/notificaciones" className={claseEnlace}>
                     Notificaciones
                   </NavLink>
-                  <button type="button" onClick={() => cerrarSesion()} className="rounded-md px-2.5 py-1.5 text-left text-[13px] font-medium text-alerta">
-                    Cerrar sesión
+                  <button type="button" onClick={salir} className="rounded-md px-2.5 py-1.5 text-left text-[13px] font-medium text-alerta">
+                    Cambiar de perfil
                   </button>
                 </>
               ) : (
-                <>
-                  <NavLink to="/login" className={claseEnlace}>
-                    Iniciar sesión
-                  </NavLink>
-                  <NavLink to="/registro" className={claseEnlace}>
-                    Crear cuenta
-                  </NavLink>
-                </>
+                <NavLink to="/entrar" className={claseEnlace}>
+                  Entrar
+                </NavLink>
               )}
             </div>
           </nav>

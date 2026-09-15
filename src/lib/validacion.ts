@@ -12,30 +12,15 @@ export const microchipSchema = z
   .trim()
   .regex(/^\d{15}$/, 'El microchip debe tener 15 dígitos numéricos.');
 
-export const registroSchema = z.object({
+/** Datos para entrar sin cuenta (sesión anónima): nombre, teléfono y rol. */
+export const perfilSchema = z.object({
   nombre: z.string().trim().min(2, 'Escribe tu nombre (mínimo 2 caracteres).').max(80, 'El nombre admite máximo 80 caracteres.'),
-  email: z.string().trim().email('Escribe un correo válido, por ejemplo nombre@correo.com.'),
   telefono: z
     .string()
     .trim()
     .regex(/^\+?[0-9 ]{7,15}$/, 'El teléfono debe tener entre 7 y 15 dígitos (puede iniciar con +).'),
-  password: z
-    .string()
-    .min(8, 'La contraseña debe tener mínimo 8 caracteres.')
-    .regex(/[A-Z]/, 'La contraseña debe incluir al menos una letra mayúscula.')
-    .regex(/[a-z]/, 'La contraseña debe incluir al menos una letra minúscula.')
-    .regex(/\d/, 'La contraseña debe incluir al menos un número.'),
-  rol: z.enum(['PROPIETARIO', 'CIUDADANO', 'VETERINARIO'], { errorMap: () => ({ message: 'Selecciona tu rol.' }) }),
+  rol: z.enum(['PROPIETARIO', 'CIUDADANO', 'VETERINARIO'], { errorMap: () => ({ message: 'Selecciona tu perfil.' }) }),
   aceptoDatos: z.literal(true, { errorMap: () => ({ message: 'Debes aceptar el tratamiento de datos personales para continuar.' }) }),
-});
-export type DatosRegistro = z.infer<typeof registroSchema>;
-
-/** Datos mínimos para reportar sin crear cuenta (sesión anónima). */
-export const contactoSchema = registroSchema.pick({ nombre: true, telefono: true, aceptoDatos: true });
-
-export const loginSchema = z.object({
-  email: z.string().trim().email('Escribe un correo válido.'),
-  password: z.string().min(1, 'Escribe tu contraseña.'),
 });
 
 export const datoReservadoSchema = z.object({

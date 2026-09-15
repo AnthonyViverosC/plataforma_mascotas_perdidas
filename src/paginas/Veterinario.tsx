@@ -97,9 +97,9 @@ export function Veterinario() {
   return (
     <div className="space-y-5">
       <EncabezadoPagina
-        etiqueta="Veterinario"
+        etiqueta="Auxiliar veterinario"
         titulo="Registrar lectura de microchip"
-        descripcion="La lectura queda en el historial con tu autoría y no se puede editar ni borrar; solo anular con justificación."
+        descripcion="Deja constancia de dónde y cuándo apareció el animal. La lectura queda en el historial con tu autoría y no se puede editar ni borrar; solo anular con justificación."
       />
       <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
         <Tarjeta className="p-5">

@@ -39,7 +39,7 @@ No hay servidor propio: toda la lógica sensible vive en PostgreSQL (RLS, trigge
 ## 3. Crear el proyecto en Supabase
 
 1. Crea un proyecto nuevo en Supabase y espera a que termine de aprovisionarse.
-2. **Authentication → Sign In / Providers → Email**: deja activo *Email* y **desactiva “Confirm email”** (obligatorio). La app no usa confirmación por correo: al registrarse, el usuario entra directamente a su panel. En la misma sección, **activa “Allow anonymous sign-ins”** (obligatorio): permite reportar hallazgos sin crear cuenta. Quien reporta así solo deja su nombre y teléfono, y la app le abre una sesión anónima con rol `CIUDADANO`.
+2. **Authentication → Sign In / Providers**: **activa “Allow anonymous sign-ins”** (obligatorio). La app **no tiene login ni registro**: en `/entrar` la persona elige su perfil (*Propietario*, *Ciudadano que encontró una mascota* o *Auxiliar veterinario*) y deja su nombre y teléfono. La app le abre una sesión anónima de Supabase con ese rol, y el trigger `crear_perfil_nuevo_usuario` crea el perfil. RLS y las funciones aplican igual que con una cuenta. Deja activo *Email*: lo usan los perfiles de demostración del seed.
 3. **SQL Editor**: pega y ejecuta cada archivo **en este orden**, uno por uno:
 
    | Orden | Archivo | Contenido |
@@ -81,15 +81,15 @@ El proyecto ya incluye `vercel.json` (build de Vite y *rewrite* SPA para que `/c
 3. Despliega con `vercel --prod` o haz *push* a `main` (el repo está conectado).
 4. En Supabase, en **Authentication → URL Configuration**, pon la URL de Vercel como *Site URL*.
 
-## 6. Credenciales de prueba
+## 6. Perfiles de prueba
 
-Todas las cuentas usan la contraseña **`Prueba2026!`**
+No hace falta escribir credenciales. En `/entrar`, la sección **Perfiles de demostración** entra con un clic a los perfiles del seed, que ya tienen casos, coincidencias y verificaciones. Por dentro son cuentas con la contraseña **`Prueba2026!`**. Para cambiar de perfil usa el botón **Cambiar de perfil** del menú superior.
 
 | Rol | Correo | Nombre |
 |---|---|---|
 | Propietario | `propietario@chippet.test` | Laura Gómez |
 | Ciudadano | `ciudadano@chippet.test` | Andrés Ruiz |
-| Veterinario | `veterinario@chippet.test` | Dra. Paula Ortiz |
+| Auxiliar veterinario | `veterinario@chippet.test` | Dra. Paula Ortiz |
 | Administrador | `admin@chippet.test` | Administración ChipPet |
 
 **Datos sembrados**
@@ -122,7 +122,7 @@ Todas las cuentas usan la contraseña **`Prueba2026!`**
 ### HU-01 · Registrar la lectura de un microchip
 
 1. Entra como **ciudadano** y abre `/veterinario`. Aparece *“No tienes permisos para esta sección”* (criterio 1). La RPC también lo rechaza: prueba T-09.
-2. Cierra sesión y entra como **veterinario**. Abre *Lectura de microchip*.
+2. Pulsa **Cambiar de perfil** y entra como **auxiliar veterinario**: con el perfil de demostración o con uno nuevo (nombre y teléfono). Abre *Lectura de microchip*.
 3. Escribe `12345` y pulsa *Registrar*. Aparece *“El microchip debe tener 15 dígitos numéricos.”* (criterio 2).
 4. Muestra que la fecha y hora es automática y no se puede editar (criterio 3). Escribe `981098102458912` (Max), el establecimiento *Clínica San Roque* y marca el punto en el mapa. Pulsa *Registrar lectura*.
 5. Aparece el aviso *“Microchip registrado: Max · la lectura se asoció a su caso abierto y se notificó al propietario”*. Pulsa *Ver caso*: el historial muestra **Lectura de microchip** (criterio 4).
@@ -209,8 +209,8 @@ rollback;
 ```
 src/
   componentes/   Boton, Campo, Mapa, SubirFotos, LineaTiempo, TarjetaCoincidencia, Campana,
-                 TarjetaCaso, Layout, RutaProtegida, ProveedorSesion, Iconos, ui
-  paginas/       Inicio, Registro, Login, Panel, MascotaFormulario, NuevoCaso, Caso, Reportar,
+                 TarjetaCaso, Layout, RutaProtegida, ProveedorSesion, FormularioPerfil, Iconos, ui
+  paginas/       Inicio, Entrar, Panel, MascotaFormulario, NuevoCaso, Caso, Reportar,
                  Buscar, Verificacion, Veterinario, Notificaciones, NoEncontrada
   lib/           supabase, matching, geo, validacion, eventos, notificaciones, cruces, fotos, formato
   hooks/         useSesion, useMisCasos, useCoincidencias, useNotificaciones (+ sesionContexto)
@@ -225,7 +225,7 @@ tests/           matching.test.ts
 
 | Historia | Dónde quedó implementada | Cómo se verifica |
 |---|---|---|
-| **A · Cuentas y roles** | `paginas/Registro.tsx`, `paginas/Login.tsx`, `componentes/ProveedorSesion.tsx`, `componentes/RutaProtegida.tsx`, `lib/validacion.ts` (`registroSchema`) · `funciones.sql` (`crear_perfil_nuevo_usuario`) · `politicas.sql` (perfiles) | Registro con contraseña débil o sin marcar el consentimiento (mensajes específicos); ruta `/veterinario` con otro rol |
+| **A · Perfiles y roles (sin login)** | `paginas/Entrar.tsx`, `componentes/FormularioPerfil.tsx`, `componentes/ProveedorSesion.tsx`, `componentes/RutaProtegida.tsx`, `lib/validacion.ts` (`perfilSchema`) · `funciones.sql` (`crear_perfil_nuevo_usuario`) · `politicas.sql` (perfiles) | Entrar sin marcar el consentimiento o con un teléfono inválido (mensajes específicos); ruta `/veterinario` con otro rol |
 | **B · Registrar mascota** | `paginas/MascotaFormulario.tsx`, `componentes/SubirFotos.tsx`, `lib/fotos.ts`, `lib/validacion.ts` (`mascotaSchema`, `validarFoto`) · `funciones.sql` (`guardar_mascota`, `validar_integridad_mascota`, `normalizar_dato_reservado`) · `componentes/ui.tsx` (`AvisoManejo`) | T-06, T-07, T-08, T-15 · aviso destacado en la ficha de Luna o Rocky |
 | **C · Reportar pérdida** | `paginas/NuevoCaso.tsx`, `lib/cruces.ts` (`ejecutarCrucesDeCaso`) · `funciones.sql` (`casos_antes_insertar`, `casos_despues_insertar`) · `schema.sql` (`casos_una_perdida_abierta_idx`) | T-14 · resultados del motor al publicar |
 | **D · Reportar hallazgo** | `paginas/Reportar.tsx` (2 pantallas), `lib/cruces.ts` (`ejecutarCrucesDeReporte`) · `politicas.sql` (reportes) | Publicar un reporte cerca de Max y ver los casos parecidos |
