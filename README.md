@@ -235,4 +235,4 @@ tests/           matching.test.ts
 | **HU-02 · Confirmar o descartar** | `componentes/TarjetaCoincidencia.tsx`, `hooks/useCoincidencias.ts`, `paginas/Caso.tsx` · `funciones.sql` (`coincidencias_antes_actualizar`, `coincidencias_despues_actualizar`) · `politicas.sql` (`coincidencias_*`) | Guion HU-02 · T-13 |
 | **HU-03 · Verificación de propiedad** | `paginas/Verificacion.tsx` · `funciones.sql` (`verificar_respuestas`, `preguntas_verificacion`, `resolver_verificacion`, `iniciar_verificacion`, `contactos_verificacion`) · `politicas.sql` (`verificaciones_*`, `respuestas_leer`, `reservados_solo_dueno`) | Guion HU-03 · T-06 · T-10 |
 | **HU-04 · Ficha única con historial** | `paginas/Caso.tsx`, `componentes/LineaTiempo.tsx`, `componentes/Mapa.tsx`, `lib/eventos.ts` · `schema.sql` (`casos_publicos`) · `funciones.sql` (`eventos_inmutables`, `casos_despues_actualizar`) · `politicas.sql` (eventos) | Guion HU-04 · T-11 · T-12 |
-# plataforma_mascotas
+
