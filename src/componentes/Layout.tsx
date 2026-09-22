@@ -1,10 +1,10 @@
-import { useState } from 'react';
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
-import { useSesion } from '../hooks/useSesion';
-import { supabaseConfigurado } from '../lib/supabase';
-import type { Rol } from '../tipos/tipos';
-import { IconoMenu, IconoPata, IconoX } from './Iconos';
-import { Aviso } from './ui';
+import { useState } from "react";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import { useSesion } from "../hooks/useSesion";
+import { supabaseConfigurado } from "../lib/supabase";
+import type { Rol } from "../tipos/tipos";
+import { IconoMenu, IconoPata, IconoX } from "./Iconos";
+import { Aviso } from "./ui";
 
 interface Enlace {
   a: string;
@@ -18,10 +18,10 @@ interface Enlace {
 // Los nombres están en primera persona y dicen la situación, no la función:
 // "Reportar hallazgo" y "Reportar pérdida" se confundían entre sí.
 const ENLACES: Enlace[] = [
-  { a: '/buscar', texto: 'Buscar' },
-  { a: '/casos/nuevo', texto: 'Perdí mi mascota' },
-  { a: '/reportar', texto: 'Encontré una mascota' },
-  { a: '/veterinario', texto: 'Leer microchip', roles: ['VETERINARIO'] },
+  { a: "/buscar", texto: "Buscar" },
+  { a: "/casos/nuevo", texto: "Perdí mi mascota" },
+  { a: "/reportar", texto: "Encontré una mascota" },
+  { a: "/veterinario", texto: "Leer microchip", roles: ["VETERINARIO"] },
 ];
 
 /**
@@ -47,10 +47,12 @@ export function Layout() {
     setMenu(false);
   }
 
-  const visibles = ENLACES.filter((e) => (e.roles ? perfil && e.roles.includes(perfil.rol) : true));
+  const visibles = ENLACES.filter((e) =>
+    e.roles ? perfil && e.roles.includes(perfil.rol) : true,
+  );
 
   const claseEnlace = ({ isActive }: { isActive: boolean }) =>
-    `rounded-md px-2.5 py-1.5 text-[13px] font-medium transition ${isActive ? 'bg-fondo text-tinta' : 'text-suave hover:text-tinta'}`;
+    `rounded-md px-2.5 py-1.5 text-[13px] font-medium transition ${isActive ? "bg-fondo text-tinta" : "text-suave hover:text-tinta"}`;
 
   return (
     <div className="flex min-h-screen flex-col bg-fondo">
@@ -61,12 +63,19 @@ export function Layout() {
               <IconoPata tamano={17} />
             </span>
             <span className="leading-none">
-              <span className="block text-sm font-bold text-tinta">ChipPet</span>
-              <span className="block text-[9px] font-semibold uppercase tracking-[0.14em] text-acento">Red de mascotas</span>
+              <span className="block text-sm font-bold text-tinta">
+                ChipPet
+              </span>
+              <span className="block text-[9px] font-semibold uppercase tracking-[0.14em] text-acento">
+                Red de mascotas
+              </span>
             </span>
           </Link>
 
-          <nav className="ml-4 hidden items-center gap-1 lg:flex" aria-label="Principal">
+          <nav
+            className="ml-4 hidden items-center gap-1 lg:flex"
+            aria-label="Principal"
+          >
             {visibles.map((e) => (
               <NavLink key={e.a} to={e.a} className={claseEnlace}>
                 {e.texto}
@@ -75,14 +84,17 @@ export function Layout() {
           </nav>
 
           <div className="ml-auto flex items-center gap-2">
-            <Link to="/reportar" className="hidden rounded-lg bg-tinta px-3 py-2 text-[13px] font-medium text-white hover:bg-black sm:block">
+            <Link
+              to="/reportar"
+              className="hidden rounded-lg bg-tinta px-3 py-2 text-[13px] font-medium text-white hover:bg-black sm:block"
+            >
               Encontré una mascota
             </Link>
             <button
               type="button"
               className="flex h-9 w-9 items-center justify-center rounded-lg border border-borde bg-white lg:hidden"
               onClick={() => setMenu((v) => !v)}
-              aria-label={menu ? 'Cerrar menú' : 'Abrir menú'}
+              aria-label={menu ? "Cerrar menú" : "Abrir menú"}
               aria-expanded={menu}
             >
               {menu ? <IconoX tamano={18} /> : <IconoMenu tamano={18} />}
@@ -91,7 +103,10 @@ export function Layout() {
         </div>
 
         {menu && (
-          <nav className="border-t border-borde bg-white px-3 py-2 lg:hidden" aria-label="Menú móvil">
+          <nav
+            className="border-t border-borde bg-white px-3 py-2 lg:hidden"
+            aria-label="Menú móvil"
+          >
             <div className="flex flex-col">
               <NavLink to="/" end className={claseEnlace}>
                 Inicio
@@ -108,8 +123,14 @@ export function Layout() {
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-3 py-5 sm:px-5 sm:py-8">
         {!supabaseConfigurado && (
-          <Aviso tipo="alerta" titulo="Falta configurar Supabase" className="mb-4">
-            Crea el archivo <code>.env</code> con <code>VITE_SUPABASE_URL</code> y <code>VITE_SUPABASE_ANON_KEY</code> (ver README) y reinicia el servidor.
+          <Aviso
+            tipo="alerta"
+            titulo="Falta configurar Supabase"
+            className="mb-4"
+          >
+            Crea el archivo <code>.env</code> con <code>VITE_SUPABASE_URL</code>{" "}
+            y <code>VITE_SUPABASE_ANON_KEY</code> (ver README) y reinicia el
+            servidor.
           </Aviso>
         )}
         <Outlet />
@@ -118,10 +139,8 @@ export function Layout() {
       <footer className="no-imprimir border-t border-borde bg-white">
         <div className="mx-auto flex max-w-6xl flex-col gap-2 px-3 py-4 text-xs text-suave sm:flex-row sm:items-center sm:justify-between sm:px-5">
           <p>
-            <span className="font-bold text-tinta">ChipPet</span> © 2026 · Red de identificación y recuperación de mascotas.
-          </p>
-          <p className="flex items-center gap-1.5">
-            <span className="h-1.5 w-1.5 rounded-full bg-acento" /> Datos reservados protegidos · Historial inmutable
+            <span className="font-bold text-tinta">ChipPet</span> © 2026 · Red
+            de identificación y recuperación de mascotas.
           </p>
         </div>
       </footer>
