@@ -11,6 +11,7 @@ import { Notificaciones } from './paginas/Notificaciones';
 import { NuevoCaso } from './paginas/NuevoCaso';
 import { Panel } from './paginas/Panel';
 import { Reportar } from './paginas/Reportar';
+import { Reporte } from './paginas/Reporte';
 import { Verificacion } from './paginas/Verificacion';
 import { Veterinario } from './paginas/Veterinario';
 
@@ -26,6 +27,7 @@ export function App() {
         <Route path="buscar" element={<Buscar />} />
         <Route path="reportar" element={<Reportar />} />
         <Route path="caso/:id" element={<Caso />} />
+        <Route path="reporte/:id" element={<Reporte />} />
         <Route
           path="panel"
           element={

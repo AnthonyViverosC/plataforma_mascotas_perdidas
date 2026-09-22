@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { formatearFecha, tiempoRelativo } from '../lib/formato';
 import { describirMotivos } from '../lib/matching';
 import { mensajeError, supabase } from '../lib/supabase';
@@ -109,6 +110,9 @@ export function TarjetaCoincidencia({
 
           <p className="text-sm font-medium text-tinta">{describirMotivos(coincidencia.motivos)}</p>
           {r?.nota && <p className="text-xs italic text-suave">“{r.nota}”</p>}
+          <Link to={`/reporte/${coincidencia.reporte_id}`} className="inline-block text-xs font-semibold text-acento hover:underline">
+            Ver el reporte completo →
+          </Link>
 
           {onDecidir &&
             (contacto ? (
