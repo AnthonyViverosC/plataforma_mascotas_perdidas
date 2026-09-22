@@ -175,9 +175,7 @@ export function Buscar() {
               onClick={() => setPestana(p)}
               className={`rounded-md px-3 py-1.5 font-medium ${pestana === p ? "bg-tinta text-white" : "text-suave hover:text-tinta"}`}
             >
-              {p === "perdidas"
-                ? "Mascotas perdidas"
-                : "Hallazgos y avistamientos"}
+              {p === "perdidas" ? "Mascotas perdidas" : "Animales encontrados"}
             </button>
           ))}
         </div>

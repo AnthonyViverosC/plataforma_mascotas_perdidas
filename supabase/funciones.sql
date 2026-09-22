@@ -637,6 +637,23 @@ begin
 end;
 $$;
 
+-- Contacto del dueño de un caso vivo: público, para que quien vea al animal
+-- pueda llamar sin trámite previo. Se entrega caso por caso (la vista
+-- casos_publicos no trae el teléfono) y deja de entregarse al cerrar el caso.
+create or replace function public.contacto_caso(p_caso uuid)
+returns table (nombre text, telefono text)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select p.nombre, p.telefono
+    from public.casos c
+    join public.perfiles p on p.id = c.creador_id
+   where c.id = p_caso
+     and c.estado in ('ABIERTO', 'EN_VERIFICACION')
+$$;
+
 -- Ubicación exacta: solo para el creador del caso.
 create or replace function public.ubicacion_exacta_caso(p_caso uuid)
 returns table (lat double precision, lng double precision)
@@ -1568,6 +1585,7 @@ revoke execute on function public.contactos_verificacion(uuid) from public, anon
 revoke execute on function public.ubicacion_exacta_caso(uuid) from public, anon;
 revoke execute on function public.cambiar_rol(text) from public, anon;
 revoke execute on function public.contacto_reporte(uuid) from public, anon;
+revoke execute on function public.contacto_caso(uuid) from public;
 
 grant execute on function public.guardar_mascota(uuid, jsonb, jsonb, jsonb) to authenticated;
 grant execute on function public.consultar_microchip(text) to authenticated;
@@ -1583,5 +1601,7 @@ grant execute on function public.contactos_verificacion(uuid) to authenticated;
 grant execute on function public.ubicacion_exacta_caso(uuid) to authenticated;
 grant execute on function public.cambiar_rol(text) to authenticated;
 grant execute on function public.contacto_reporte(uuid) to authenticated;
+-- Público a propósito: quien ve al animal llama al dueño sin trámite previo.
+grant execute on function public.contacto_caso(uuid) to anon, authenticated;
 grant execute on function public.distancia_km(double precision, double precision, double precision, double precision) to anon, authenticated;
 grant execute on function public.normalizar_texto(text) to anon, authenticated;

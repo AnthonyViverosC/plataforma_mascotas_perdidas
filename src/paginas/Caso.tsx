@@ -11,6 +11,7 @@ import {
   IconoOjo,
   IconoRadar,
   IconoReloj,
+  IconoTelefono,
   IconoUsuario,
 } from '../componentes/Iconos';
 import { LineaTiempo } from '../componentes/LineaTiempo';
@@ -62,6 +63,7 @@ export function Caso() {
   const [fotos, setFotos] = useState<FotoMascota[]>([]);
   const [fotoActiva, setFotoActiva] = useState(0);
   const [creador, setCreador] = useState<PerfilPublico | null>(null);
+  const [contacto, setContacto] = useState<{ nombre: string; telefono: string } | null>(null);
   const [lecturas, setLecturas] = useState<LecturaMicrochip[]>([]);
   const [verifs, setVerifs] = useState<Verificacion[]>([]);
   const [exacta, setExacta] = useState<Punto | null>(null);
@@ -103,6 +105,11 @@ export function Caso() {
 
     const perfiles = await perfilesPublicos([c.creador_id]);
     setCreador(perfiles.get(c.creador_id) ?? null);
+
+    // Teléfono del dueño: público mientras el caso siga vivo, para que quien
+    // vea al animal pueda llamar de una vez. La RPC no lo entrega si está cerrado.
+    const { data: ct } = await supabase.rpc('contacto_caso', { p_caso: c.id });
+    setContacto(((ct as { nombre: string; telefono: string }[] | null) ?? [])[0] ?? null);
 
     if (usuario && usuario.id === c.creador_id) {
       const { data: ub } = await supabase.rpc('ubicacion_exacta_caso', { p_caso: c.id });
@@ -207,19 +214,6 @@ export function Caso() {
     await refrescarTodo();
   };
 
-  const iniciarVerificacion = async () => {
-    if (!caso) return;
-    setTrabajando(true);
-    setMensaje(null);
-    const { data, error } = await supabase.rpc('iniciar_verificacion', { p_caso: caso.id });
-    setTrabajando(false);
-    if (error) {
-      setMensaje({ tipo: 'alerta', texto: mensajeError(error) });
-      return;
-    }
-    navegar(`/verificacion/${data as string}`);
-  };
-
   if (estado === 'cargando') return <Cargando texto="Cargando ficha del caso…" />;
   if (estado === 'noexiste' || !caso) {
     return (
@@ -232,7 +226,6 @@ export function Caso() {
   const activo = caso.estado === 'ABIERTO' || caso.estado === 'EN_VERIFICACION';
   const centroMapa = exacta ?? { lat: caso.lat_publica, lng: caso.lng_publica };
   const foto = fotos[fotoActiva]?.url ?? caso.foto_url;
-  const puedeIniciarVerif = Boolean(usuario && !esPropietarioMascota && caso.mascota_id && activo);
 
   return (
     <div className="space-y-4">
@@ -244,10 +237,7 @@ export function Caso() {
           <span className="text-borde">/</span>
           <span className="font-mono text-xs text-suave">{idCorto(caso.id)}</span>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="hidden text-[11px] uppercase tracking-wide text-suave sm:inline">Historial de custodia</span>
-          <InsigniaEstadoCaso estado={caso.estado} />
-        </div>
+        <InsigniaEstadoCaso estado={caso.estado} />
       </div>
 
       <AvisoManejo temperamento={caso.temperamento} nota={caso.nota_manejo} />
@@ -316,7 +306,7 @@ export function Caso() {
               {mascota?.microchip && (
                 <div className="rounded-lg border border-borde bg-fondo p-3">
                   <div className="flex items-center justify-between">
-                    <EtiquetaSeccion>Transpondedor ISO 11784</EtiquetaSeccion>
+                    <EtiquetaSeccion>Microchip</EtiquetaSeccion>
                     <span className="text-[10px] font-semibold text-acento">15 dígitos</span>
                   </div>
                   <p className="mt-1 flex items-center gap-2 font-mono text-lg font-semibold tracking-wider">
@@ -334,14 +324,26 @@ export function Caso() {
               </div>
 
               {creador && (
-                <div className="flex items-center gap-3 rounded-lg border border-borde p-3">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-acento-claro text-acento">
-                    <IconoUsuario tamano={16} />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold">{creador.nombre}</p>
-                    <p className="text-[11px] text-suave">{caso.tipo === 'PERDIDA' ? 'Propietario' : ETIQUETA_ROL[creador.rol]} · el teléfono no es público</p>
+                <div className="space-y-2 rounded-lg border border-borde p-3">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-acento-claro text-acento">
+                      <IconoUsuario tamano={16} />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold">{contacto?.nombre ?? creador.nombre}</p>
+                      <p className="text-[11px] text-suave">{caso.tipo === 'PERDIDA' ? 'Propietario' : ETIQUETA_ROL[creador.rol]}</p>
+                    </div>
                   </div>
+                  {contacto ? (
+                    <a
+                      href={`tel:${contacto.telefono}`}
+                      className="flex items-center justify-center gap-2 rounded-lg bg-acento px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-acento/90"
+                    >
+                      <IconoTelefono tamano={16} /> Llamar al {contacto.telefono}
+                    </a>
+                  ) : (
+                    <p className="text-[11px] text-suave">El caso está cerrado: el teléfono ya no se publica.</p>
+                  )}
                 </div>
               )}
 
@@ -361,7 +363,7 @@ export function Caso() {
                   </div>
                   {caso.tipo === 'PERDIDA' && (
                     <Boton ancho tamano="sm" icono={<IconoRadar tamano={14} />} onClick={recalcular} cargando={trabajando && accion === null}>
-                      Recalcular coincidencias
+                      Buscar avistamientos de nuevo
                     </Boton>
                   )}
                   {accion === 'radio' && (
@@ -397,19 +399,14 @@ export function Caso() {
                   )}
                 </>
               )}
-              {puedeIniciarVerif && (
-                <Boton ancho icono={<IconoEscudo tamano={16} />} onClick={iniciarVerificacion} cargando={trabajando}>
-                  Encontré a este animal: iniciar verificación
-                </Boton>
-              )}
               {activo && caso.tipo === 'PERDIDA' && !esDueno && (
-                <BotonEnlace to={`/reportar?caso=${caso.id}`} variante="secundario" ancho icono={<IconoOjo tamano={16} />}>
-                  Aportar un avistamiento
+                <BotonEnlace to={`/reportar?caso=${caso.id}`} ancho icono={<IconoOjo tamano={16} />}>
+                  La vi: quiero avisar
                 </BotonEnlace>
               )}
               {!usuario && activo && (
                 <p className="text-center text-xs text-suave">
-                  Para aportar un avistamiento no necesitas cuenta: te pediremos tu nombre y teléfono en el primer paso.
+                  No necesitas cuenta: solo tu nombre y tu teléfono.
                 </p>
               )}
             </div>
@@ -417,7 +414,7 @@ export function Caso() {
 
           {verifs.length > 0 && (
             <Tarjeta className="p-4">
-              <EtiquetaSeccion className="mb-2">Verificaciones de propiedad</EtiquetaSeccion>
+              <EtiquetaSeccion className="mb-2">Pruebas de que es su mascota</EtiquetaSeccion>
               <ul className="space-y-2">
                 {verifs.map((v) => (
                   <li key={v.id}>
@@ -461,8 +458,8 @@ export function Caso() {
           {esDueno && caso.tipo === 'PERDIDA' && (
             <Tarjeta className="p-4">
               <div id="coincidencias" className="mb-3">
-                <EtiquetaSeccion>Coincidencias sugeridas</EtiquetaSeccion>
-                <p className="text-xs text-suave">Ordenadas de mayor a menor puntaje. Decide aquí mismo: no hay que abrir nada.</p>
+                <EtiquetaSeccion>Posibles avistamientos de tu mascota</EtiquetaSeccion>
+                <p className="text-xs text-suave">Animales que alguien reportó y se parecen al tuyo. Los más parecidos van primero.</p>
               </div>
               {errorCoinc && <Aviso tipo="alerta">{errorCoinc}</Aviso>}
               {cargandoCoinc ? (
@@ -508,10 +505,9 @@ export function Caso() {
           <Tarjeta className="p-4">
             <div className="mb-3 flex items-start justify-between gap-2">
               <div>
-                <h2 className="text-base font-bold">Historial del caso</h2>
-                <p className="text-xs text-suave">Registro inmutable en orden cronológico descendente.</p>
+                <h2 className="text-base font-bold">Todo lo que ha pasado</h2>
+                <p className="text-xs text-suave">De lo más reciente a lo más antiguo. Nadie puede borrar ni cambiar esta lista.</p>
               </div>
-              <Insignia>Solo lectura</Insignia>
             </div>
             <LineaTiempo casoId={caso.id} version={version} />
           </Tarjeta>

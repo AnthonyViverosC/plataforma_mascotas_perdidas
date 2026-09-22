@@ -99,6 +99,12 @@ export const IconoMas = (p: PropsIcono) => (
     <path d="M12 5v14M5 12h14" />
   </Icono>
 );
+export const IconoTelefono = (p: PropsIcono) => (
+  <Icono {...p}>
+    <path d="M6.5 3h3l1.5 4-2 1.2a12 12 0 0 0 5.8 5.8L16 12l4 1.5v3a2 2 0 0 1-2.2 2A16.5 16.5 0 0 1 3.5 5.2 2 2 0 0 1 5.5 3z" />
+  </Icono>
+);
+
 export const IconoUsuario = (p: PropsIcono) => (
   <Icono {...p}>
     <circle cx="12" cy="8" r="4" />

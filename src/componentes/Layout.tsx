@@ -14,11 +14,14 @@ interface Enlace {
 
 // Solo destinos, ninguno condicionado a "tener cuenta". Reportar una pérdida
 // ya no pide rol: el asistente recoge los datos de la persona en su paso 1.
+//
+// Los nombres están en primera persona y dicen la situación, no la función:
+// "Reportar hallazgo" y "Reportar pérdida" se confundían entre sí.
 const ENLACES: Enlace[] = [
-  { a: '/buscar', texto: 'Mascotas perdidas' },
-  { a: '/reportar', texto: 'Reportar hallazgo' },
-  { a: '/casos/nuevo', texto: 'Reportar pérdida' },
-  { a: '/veterinario', texto: 'Lectura de microchip', roles: ['VETERINARIO'] },
+  { a: '/buscar', texto: 'Buscar' },
+  { a: '/casos/nuevo', texto: 'Perdí mi mascota' },
+  { a: '/reportar', texto: 'Encontré una mascota' },
+  { a: '/veterinario', texto: 'Leer microchip', roles: ['VETERINARIO'] },
 ];
 
 /**
@@ -33,7 +36,7 @@ const ENLACES: Enlace[] = [
  * que no redirige aunque ya haya sesión abierta.
  */
 export function Layout() {
-  const { perfil, usuario } = useSesion();
+  const { perfil } = useSesion();
   const [menu, setMenu] = useState(false);
   const { pathname } = useLocation();
   const [rutaMenu, setRutaMenu] = useState(pathname);
@@ -72,11 +75,9 @@ export function Layout() {
           </nav>
 
           <div className="ml-auto flex items-center gap-2">
-            {!usuario && (
-              <Link to="/reportar" className="hidden rounded-lg bg-tinta px-3 py-2 text-[13px] font-medium text-white hover:bg-black sm:block">
-                Reportar hallazgo
-              </Link>
-            )}
+            <Link to="/reportar" className="hidden rounded-lg bg-tinta px-3 py-2 text-[13px] font-medium text-white hover:bg-black sm:block">
+              Encontré una mascota
+            </Link>
             <button
               type="button"
               className="flex h-9 w-9 items-center justify-center rounded-lg border border-borde bg-white lg:hidden"
@@ -100,11 +101,6 @@ export function Layout() {
                   {e.texto}
                 </NavLink>
               ))}
-              {usuario && (
-                <NavLink to="/notificaciones" className={claseEnlace}>
-                  Notificaciones
-                </NavLink>
-              )}
             </div>
           </nav>
         )}
