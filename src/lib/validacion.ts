@@ -20,7 +20,9 @@ export const perfilSchema = z.object({
     .trim()
     .regex(/^\+?[0-9 ]{7,15}$/, 'El teléfono debe tener entre 7 y 15 dígitos (puede iniciar con +).'),
   rol: z.enum(['PROPIETARIO', 'CIUDADANO', 'VETERINARIO'], { errorMap: () => ({ message: 'Selecciona tu perfil.' }) }),
-  aceptoDatos: z.literal(true, { errorMap: () => ({ message: 'Debes aceptar el tratamiento de datos personales para continuar.' }) }),
+  // El consentimiento ya no es una casilla: se informa junto al botón y se
+  // envía siempre en true. La base lo sigue exigiendo (perfiles.acepto_datos).
+  aceptoDatos: z.literal(true),
 });
 
 export const datoReservadoSchema = z.object({
@@ -105,11 +107,32 @@ export const reporteSchema = z.object({
   nota: z.string().trim().max(500, 'La nota admite máximo 500 caracteres.'),
 });
 
+/**
+ * Lectura de microchip (H1). La ubicación no se pide aquí: solo hace falta
+ * cuando la consulta previa avisa que se abrirá un caso de hallazgo.
+ */
 export const lecturaSchema = z.object({
   codigo: microchipSchema,
-  establecimiento: z.string().trim().min(2, 'Indica el nombre del establecimiento.').max(120, 'El establecimiento admite máximo 120 caracteres.'),
-  punto: puntoSchema,
+  establecimiento: z.string().trim().min(2, 'Indica el nombre de la veterinaria.').max(120, 'La veterinaria admite máximo 120 caracteres.'),
+  leido_por: z.string().trim().min(2, 'Indica quién hizo la lectura.').max(80, 'El nombre admite máximo 80 caracteres.'),
 });
+
+/** Ubicación exigida solo en la rama que abre un caso de hallazgo. */
+export const ubicacionLecturaSchema = puntoSchema;
+
+/**
+ * Preguntas que crea quien encontró al animal (HU-03), cuando la mascota no
+ * tiene datos reservados de su dueño. Mismas reglas que datoReservadoSchema.
+ */
+export const preguntasVerificacionSchema = z
+  .array(datoReservadoSchema)
+  .min(3, 'Debes crear al menos 3 preguntas con su respuesta.')
+  .superRefine((lista, ctx) => {
+    const preguntas = lista.map((p) => p.pregunta.trim().toLowerCase());
+    if (new Set(preguntas).size !== preguntas.length) {
+      ctx.addIssue({ code: 'custom', message: 'Las preguntas no pueden repetirse.' });
+    }
+  });
 
 export const anulacionSchema = z
   .string()

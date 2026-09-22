@@ -48,7 +48,12 @@ export function Entrar() {
   const [entrandoDemo, setEntrandoDemo] = useState<string | null>(null);
   const [errorDemo, setErrorDemo] = useState<string | null>(null);
 
-  if (usuario) {
+  const modoDemo = params.get('demo') === '1';
+
+  // Con ?demo=1 no se redirige aunque ya haya sesión: es la única forma de
+  // cambiar de perfil durante la sustentación, porque el encabezado ya no
+  // muestra ningún botón de salir ni de cambiar de perfil, para ningún rol.
+  if (usuario && !modoDemo) {
     if (!perfil) return <Cargando texto="Preparando tu perfil…" />;
     const inicio = perfil.rol === 'VETERINARIO' ? '/veterinario' : '/panel';
     const destino = volver && volver.startsWith('/') && !volver.startsWith('//') ? volver : inicio;
@@ -114,18 +119,21 @@ export function Entrar() {
         </div>
       )}
 
-      <Tarjeta className="space-y-3 p-4">
-        <EtiquetaSeccion>Perfiles de demostración</EtiquetaSeccion>
-        <p className="text-xs text-suave">Entra con un clic a los perfiles del seed, que ya tienen casos, coincidencias y verificaciones.</p>
-        <div className="grid gap-2 sm:grid-cols-3">
-          {DEMO.map((d) => (
-            <Boton key={d.email} variante="secundario" onClick={() => entrarDemo(d.email)} cargando={entrandoDemo === d.email} disabled={Boolean(entrandoDemo)}>
-              {d.nombre} · {ETIQUETA_ROL[d.rol]}
-            </Boton>
-          ))}
-        </div>
-        {errorDemo && <Aviso tipo="alerta">{errorDemo}</Aviso>}
-      </Tarjeta>
+      {/* Atajo solo para la sustentación: /entrar?demo=1. No se muestra nunca al usuario común. */}
+      {modoDemo && (
+        <Tarjeta className="space-y-3 p-4">
+          <EtiquetaSeccion>Perfiles de demostración</EtiquetaSeccion>
+          <p className="text-xs text-suave">Entra con un clic a los perfiles del seed, que ya tienen casos, coincidencias y verificaciones.</p>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {DEMO.map((d) => (
+              <Boton key={d.email} variante="secundario" onClick={() => entrarDemo(d.email)} cargando={entrandoDemo === d.email} disabled={Boolean(entrandoDemo)}>
+                {d.nombre} · {ETIQUETA_ROL[d.rol]}
+              </Boton>
+            ))}
+          </div>
+          {errorDemo && <Aviso tipo="alerta">{errorDemo}</Aviso>}
+        </Tarjeta>
+      )}
     </div>
   );
 }

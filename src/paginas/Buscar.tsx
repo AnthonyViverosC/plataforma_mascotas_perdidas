@@ -41,6 +41,8 @@ export function Buscar() {
   });
   const [zona, setZona] = useState<Punto | null>(null);
   const [verZona, setVerZona] = useState(false);
+  // La página abre mostrando mascotas, no un formulario: los filtros se piden.
+  const [verFiltros, setVerFiltros] = useState(false);
   const [casos, setCasos] = useState<CasoPublico[]>([]);
   const [reportes, setReportes] = useState<Reporte[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -106,22 +108,28 @@ export function Buscar() {
 
   return (
     <div>
-      <EncabezadoPagina etiqueta="Búsqueda" titulo="Buscar mascotas" descripcion="Filtra casos de pérdida y reportes de hallazgo por especie, raza, color, tamaño, zona y fechas." />
+      <EncabezadoPagina titulo="Buscar mascotas" />
 
-      <div className="mb-4 inline-flex rounded-lg border border-borde bg-white p-0.5 text-sm">
-        {(['perdidas', 'hallazgos'] as Pestana[]).map((p) => (
-          <button
-            key={p}
-            type="button"
-            onClick={() => setPestana(p)}
-            className={`rounded-md px-3 py-1.5 font-medium ${pestana === p ? 'bg-tinta text-white' : 'text-suave hover:text-tinta'}`}
-          >
-            {p === 'perdidas' ? 'Mascotas perdidas' : 'Hallazgos y avistamientos'}
-          </button>
-        ))}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <div className="inline-flex rounded-lg border border-borde bg-white p-0.5 text-sm">
+          {(['perdidas', 'hallazgos'] as Pestana[]).map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => setPestana(p)}
+              className={`rounded-md px-3 py-1.5 font-medium ${pestana === p ? 'bg-tinta text-white' : 'text-suave hover:text-tinta'}`}
+            >
+              {p === 'perdidas' ? 'Mascotas perdidas' : 'Hallazgos y avistamientos'}
+            </button>
+          ))}
+        </div>
+        <Boton variante="secundario" tamano="sm" icono={<IconoBuscar tamano={14} />} onClick={() => setVerFiltros((v) => !v)}>
+          {verFiltros ? 'Ocultar filtros' : 'Filtrar'}
+        </Boton>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[300px_1fr]">
+      <div className={`grid gap-4 ${verFiltros ? 'lg:grid-cols-[300px_1fr]' : ''}`}>
+        {verFiltros && (
         <Tarjeta className="h-fit space-y-3 p-4">
           <form
             className="space-y-3"
@@ -190,6 +198,7 @@ export function Buscar() {
             </Boton>
           </form>
         </Tarjeta>
+        )}
 
         <div className="space-y-4">
           {error && <Aviso tipo="alerta">{error}</Aviso>}

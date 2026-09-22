@@ -19,6 +19,9 @@ const MENSAJES_RESTRICCION: Record<string, string> = {
   perfiles_telefono_check: 'El teléfono debe tener entre 7 y 15 dígitos.',
   mascotas_microchip_check: 'El microchip debe tener 15 dígitos numéricos.',
   lecturas_microchip_codigo_check: 'El microchip debe tener 15 dígitos numéricos.',
+  lecturas_leido_por_check: 'El nombre de quien hizo la lectura debe tener entre 2 y 80 caracteres.',
+  lecturas_establecimiento_check: 'El nombre de la veterinaria debe tener entre 2 y 120 caracteres.',
+  lecturas_anulacion_justificada: 'La justificación de la anulación debe tener al menos 10 caracteres.',
   mascotas_nota_manejo_check: 'La nota de manejo admite máximo 300 caracteres.',
 };
 

@@ -50,14 +50,8 @@ export function App() {
             </RutaProtegida>
           }
         />
-        <Route
-          path="casos/nuevo"
-          element={
-            <RutaProtegida roles={['PROPIETARIO', 'ADMIN']}>
-              <NuevoCaso />
-            </RutaProtegida>
-          }
-        />
+        {/* Sin RutaProtegida: los datos de la persona son el paso 1 del asistente. */}
+        <Route path="casos/nuevo" element={<NuevoCaso />} />
         <Route
           path="verificacion/:id"
           element={

@@ -140,9 +140,13 @@ create table public.lecturas_microchip (
   codigo           text not null check (codigo ~ '^[0-9]{15}$'),
   mascota_id       uuid references public.mascotas (id) on delete set null,
   caso_id          uuid references public.casos (id) on delete restrict,
-  lat              double precision not null check (lat between -90 and 90),
-  lng              double precision not null check (lng between -180 and 180),
+  -- La lectura ocurre en la veterinaria: la ubicación solo hace falta cuando
+  -- hay que abrir un caso de hallazgo (mascota registrada sin caso abierto).
+  lat              double precision check (lat between -90 and 90),
+  lng              double precision check (lng between -180 and 180),
   establecimiento  text not null check (char_length(btrim(establecimiento)) between 2 and 120),
+  leido_por        text not null constraint lecturas_leido_por_check
+                     check (char_length(btrim(leido_por)) between 2 and 80),
   leido_en         timestamptz not null default now(),
   anulada          boolean not null default false,
   motivo_anulacion text,
@@ -195,15 +199,31 @@ create unique index verificaciones_una_pendiente_idx
   on public.verificaciones (caso_id, reclamante_id)
   where estado = 'PENDIENTE';
 
+-- Preguntas que crea quien encontró al animal, cuando la mascota no tiene
+-- datos reservados de su dueño (nunca se registró, o es un hallazgo).
+create table public.preguntas_verif (
+  id              uuid primary key default gen_random_uuid(),
+  verificacion_id uuid not null references public.verificaciones (id) on delete cascade,
+  pregunta        text not null check (char_length(btrim(pregunta)) between 5 and 200),
+  respuesta       text not null check (char_length(btrim(respuesta)) between 1 and 200),
+  orden           smallint not null default 0,
+  creado_en       timestamptz not null default now()
+);
+create index preguntas_verif_idx on public.preguntas_verif (verificacion_id, orden);
+
+-- Una respuesta apunta a un dato reservado del dueño O a una pregunta creada
+-- por quien encontró al animal, nunca a las dos ni a ninguna.
 create table public.respuestas_verif (
   id                uuid primary key default gen_random_uuid(),
   verificacion_id   uuid not null references public.verificaciones (id) on delete cascade,
-  dato_reservado_id uuid not null references public.datos_reservados (id) on delete cascade,
+  dato_reservado_id uuid references public.datos_reservados (id) on delete cascade,
+  pregunta_verif_id uuid references public.preguntas_verif (id) on delete cascade,
   intento           smallint not null check (intento between 1 and 3),
   respuesta_dada    text not null check (char_length(respuesta_dada) <= 200),
   coincide_auto     boolean not null,
   correcta          boolean,
-  creado_en         timestamptz not null default now()
+  creado_en         timestamptz not null default now(),
+  constraint respuestas_verif_una_fuente check (num_nonnulls(dato_reservado_id, pregunta_verif_id) = 1)
 );
 create index respuestas_verif_idx on public.respuestas_verif (verificacion_id, intento);
 

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { Boton, BotonEnlace } from '../componentes/Boton';
 import { AreaTexto, Campo, Selector } from '../componentes/Campo';
 import { FormularioPerfil } from '../componentes/FormularioPerfil';
-import { IconoRadar } from '../componentes/Iconos';
+import { IconoPata, IconoRadar } from '../componentes/Iconos';
 import { SelectorUbicacion } from '../componentes/Mapa';
 import { SubirFotos } from '../componentes/SubirFotos';
 import { TarjetaCaso } from '../componentes/TarjetaCaso';
@@ -25,15 +25,34 @@ import {
   type Reporte,
 } from '../tipos/tipos';
 
-const pantalla1 = reporteSchema.pick({ foto_url: true, especie: true, punto: true, ocurrido_en: true, estado_animal: true });
+const pantallaMascota = reporteSchema.pick({ foto_url: true, especie: true, punto: true, ocurrido_en: true, estado_animal: true });
 
-/** Reporte de hallazgo o avistamiento: 2 pantallas como máximo (HU D). */
+type Paso = 1 | 2 | 3;
+const TITULOS: Record<Paso, string> = { 1: 'Tus datos', 2: 'Datos de la mascota', 3: 'Rasgos (opcional)' };
+
+/**
+ * Reporte de hallazgo o avistamiento en 3 pasos (HU D).
+ *
+ * El paso 1 recoge los datos de quien reporta y abre la sesión por detrás: es
+ * obligatorio que vaya primero porque la foto se sube a la carpeta del usuario
+ * (política "fotos: subir en carpeta propia") y el reporte exige autor_id = auth.uid().
+ * Nunca se le pide a nadie crear una cuenta ni una contraseña.
+ */
 export function Reportar() {
   const { usuario, cargando } = useSesion();
   const [params] = useSearchParams();
   const casoRef = params.get('caso');
 
-  const [paso, setPaso] = useState<1 | 2>(1);
+  // Antes del formulario se ofrece reconocer al animal entre los que ya están
+  // reportados como perdidos: es lo primero que haría cualquiera con el animal
+  // delante. Quien llega con ?caso=… se salta la galería.
+  const [fase, setFase] = useState<'eligiendo' | 'formulario'>(casoRef ? 'formulario' : 'eligiendo');
+  const [perdidas, setPerdidas] = useState<CasoPublico[]>([]);
+  const [cargandoPerdidas, setCargandoPerdidas] = useState(true);
+
+  // Siempre se arranca en el paso 1: los datos de quien reporta se piden en
+  // cada reporte, aunque el navegador ya tenga una sesión abierta.
+  const [paso, setPaso] = useState<Paso>(1);
   const [fotos, setFotos] = useState<string[]>([]);
   const [especie, setEspecie] = useState('');
   const [punto, setPunto] = useState<Punto | null>(null);
@@ -50,6 +69,26 @@ export function Reportar() {
   const [resultado, setResultado] = useState<ResultadoCruceReporte | null>(null);
   const [casoReferido, setCasoReferido] = useState<CasoPublico | null>(null);
   const ahoraMax = useMemo(() => aInputFechaLocal(new Date()), []);
+
+  useEffect(() => {
+    if (fase !== 'eligiendo') return;
+    let activo = true;
+    supabase
+      .from('casos_publicos')
+      .select('*')
+      .eq('tipo', 'PERDIDA')
+      .in('estado', ['ABIERTO', 'EN_VERIFICACION'])
+      .order('creado_en', { ascending: false })
+      .limit(24)
+      .then(({ data }) => {
+        if (!activo) return;
+        setPerdidas((data as CasoPublico[] | null) ?? []);
+        setCargandoPerdidas(false);
+      });
+    return () => {
+      activo = false;
+    };
+  }, [fase]);
 
   useEffect(() => {
     if (!casoRef) return;
@@ -85,13 +124,13 @@ export function Reportar() {
 
   const continuar = (e: FormEvent) => {
     e.preventDefault();
-    const r = pantalla1.safeParse(datos());
+    const r = pantallaMascota.safeParse(datos());
     if (!r.success) {
       setErrores(erroresPorCampo(r.error));
       return;
     }
     setErrores({});
-    setPaso(2);
+    setPaso(3);
   };
 
   const enviar = async (e: FormEvent) => {
@@ -100,7 +139,7 @@ export function Reportar() {
     const r = reporteSchema.safeParse(datos());
     if (!r.success) {
       setErrores(erroresPorCampo(r.error));
-      setPaso(1);
+      setPaso(2);
       return;
     }
     if (!usuario) return;
@@ -172,8 +211,8 @@ export function Reportar() {
           )}
         </Tarjeta>
         <div className="flex flex-wrap justify-end gap-2">
-          <BotonEnlace to="/panel" variante="secundario">
-            Ir a mi panel
+          <BotonEnlace to="/" variante="secundario">
+            Volver al inicio
           </BotonEnlace>
           {casoReferido && <BotonEnlace to={`/caso/${casoReferido.id}`}>Volver al caso</BotonEnlace>}
         </div>
@@ -183,28 +222,54 @@ export function Reportar() {
 
   if (cargando) return <Cargando texto="Cargando…" />;
 
-  if (!usuario) {
+  if (fase === 'eligiendo') {
+    const elegir = (c: CasoPublico | null) => {
+      setCasoReferido(c);
+      if (c?.especie) setEspecie(c.especie);
+      setFase('formulario');
+    };
     return (
-      <div className="mx-auto max-w-lg">
+      <div className="mx-auto max-w-3xl">
         <EncabezadoPagina
-          etiqueta="Reporte sin cuenta"
-          titulo="Reportar un animal encontrado o avistado"
-          descripcion="No necesitas crear una cuenta. Déjanos tu nombre y un teléfono para que el dueño pueda coordinar la entrega."
+          titulo="¿Reconoces al animal que encontraste?"
+          descripcion="Estas son las mascotas que sus dueños están buscando ahora mismo. Si es una de ellas, avisamos directo a su dueño."
         />
-        {casoReferido && (
+        {cargandoPerdidas ? (
+          <Cargando />
+        ) : perdidas.length === 0 ? (
           <Aviso tipo="info" className="mb-4">
-            Aportarás un avistamiento al caso de <strong>{casoReferido.mascota_nombre}</strong>.
+            Ahora mismo no hay mascotas reportadas como perdidas. Describe al animal que encontraste y lo cruzaremos con lo que llegue después.
           </Aviso>
+        ) : (
+          <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {perdidas.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => elegir(c)}
+                className="overflow-hidden rounded-xl border border-borde bg-white text-left shadow-tarjeta transition hover:-translate-y-0.5 hover:border-acento"
+              >
+                <div className="aspect-square bg-fondo">
+                  {c.foto_url ? (
+                    <img src={c.foto_url} alt={c.mascota_nombre ?? 'Mascota'} className="h-full w-full object-cover" loading="lazy" />
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-suave">
+                      <IconoPata tamano={28} />
+                    </div>
+                  )}
+                </div>
+                <div className="p-2">
+                  <p className="truncate text-sm font-bold">{c.mascota_nombre ?? 'Sin nombre'}</p>
+                  <p className="truncate text-[11px] text-suave">{[c.raza, c.color_principal].filter(Boolean).join(' · ')}</p>
+                  <p className="truncate text-[11px] text-suave">{c.direccion_texto || 'Zona aproximada'}</p>
+                </div>
+              </button>
+            ))}
+          </div>
         )}
-        <Tarjeta className="space-y-4 p-5">
-          <FormularioPerfil rol="CIUDADANO" textoBoton="Continuar" />
-          <p className="text-center text-sm text-suave">
-            ¿Eres el dueño o un auxiliar veterinario?{' '}
-            <Link to={`/entrar?volver=${encodeURIComponent('/reportar' + (casoRef ? `?caso=${casoRef}` : ''))}`} className="font-semibold text-acento hover:underline">
-              Elige otro perfil
-            </Link>
-          </p>
-        </Tarjeta>
+        <Boton ancho tamano="lg" variante={perdidas.length === 0 ? 'primario' : 'secundario'} onClick={() => elegir(null)}>
+          No es ninguna de estas — describir al animal
+        </Boton>
       </div>
     );
   }
@@ -212,9 +277,9 @@ export function Reportar() {
   return (
     <div className="mx-auto max-w-2xl">
       <EncabezadoPagina
-        etiqueta={`Paso ${paso} de 2`}
+        etiqueta={`Paso ${paso} de 3 · ${TITULOS[paso]}`}
         titulo="Reportar un animal encontrado o avistado"
-        descripcion="Solo lo esencial: una foto, la especie, dónde y cuándo lo viste y cómo está."
+        descripcion="No necesitas crear una cuenta ni contraseña. Son tres pasos cortos."
       />
       {casoReferido && (
         <Aviso tipo="info" className="mb-4">
@@ -222,11 +287,27 @@ export function Reportar() {
         </Aviso>
       )}
       <div className="mb-4 flex gap-2" aria-hidden="true">
-        <span className={`h-1.5 flex-1 rounded-full ${paso >= 1 ? 'bg-acento' : 'bg-borde'}`} />
-        <span className={`h-1.5 flex-1 rounded-full ${paso >= 2 ? 'bg-acento' : 'bg-borde'}`} />
+        {([1, 2, 3] as Paso[]).map((n) => (
+          <span key={n} className={`h-1.5 flex-1 rounded-full ${paso >= n ? 'bg-acento' : 'bg-borde'}`} />
+        ))}
       </div>
 
-      {paso === 1 ? (
+      {/* ---------- Paso 1 · quién reporta ---------- */}
+      {paso === 1 && (
+        <Tarjeta className="space-y-4 p-5">
+          <div className="space-y-1">
+            <EtiquetaSeccion>Tus datos</EtiquetaSeccion>
+            <p className="text-sm text-suave">
+              Necesitamos saber a quién escribirle si este animal resulta ser la mascota de alguien. Tu teléfono no se muestra en público: solo lo ve
+              la otra parte cuando se supera la verificación.
+            </p>
+          </div>
+          <FormularioPerfil rol="CIUDADANO" textoBoton="Continuar" onListo={() => setPaso(2)} />
+        </Tarjeta>
+      )}
+
+      {/* ---------- Paso 2 · la mascota ---------- */}
+      {paso === 2 && usuario && (
         <form onSubmit={continuar} className="space-y-4" noValidate>
           <Tarjeta className="space-y-3 p-5">
             <EtiquetaSeccion>Foto del animal</EtiquetaSeccion>
@@ -277,7 +358,10 @@ export function Reportar() {
             Continuar
           </Boton>
         </form>
-      ) : (
+      )}
+
+      {/* ---------- Paso 3 · rasgos opcionales ---------- */}
+      {paso === 3 && (
         <form onSubmit={enviar} className="space-y-4" noValidate>
           <Tarjeta className="space-y-4 p-5">
             <p className="text-sm text-suave">Estos datos son opcionales, pero mejoran el cruce con los casos de pérdida.</p>
@@ -312,7 +396,7 @@ export function Reportar() {
           </Tarjeta>
           {errorGeneral && <Aviso tipo="alerta">{errorGeneral}</Aviso>}
           <div className="grid grid-cols-2 gap-2">
-            <Boton variante="secundario" onClick={() => setPaso(1)} disabled={enviando}>
+            <Boton variante="secundario" onClick={() => setPaso(2)} disabled={enviando}>
               Atrás
             </Boton>
             <Boton type="submit" cargando={enviando}>

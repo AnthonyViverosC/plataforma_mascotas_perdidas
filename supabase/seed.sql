@@ -113,7 +113,12 @@ insert into public.casos (id, mascota_id, creador_id, tipo, estado, lat, lng, di
   -- K4 · Nina · resuelto con verificación aprobada
   ('c0000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000004', '11111111-1111-1111-1111-111111111111', 'PERDIDA', 'RESUELTO',
    1.2350, -77.2950, 'Avenida Panamericana', now() - interval '6 days',
-   'Se perdió cerca de la avenida al abrirse el portón.', 5, now() - interval '4 days', now() - interval '6 days' + interval '1 hour');
+   'Se perdió cerca de la avenida al abrirse el portón.', 5, now() - interval '4 days', now() - interval '6 days' + interval '1 hour'),
+  -- K5 · hallazgo de un animal SIN registrar: aquí las preguntas las crea
+  -- quien lo encontró, porque no hay datos reservados de ningún dueño (HU-03).
+  ('c0000000-0000-0000-0000-000000000005', null, '22222222-2222-2222-2222-222222222222', 'HALLAZGO', 'EN_VERIFICACION',
+   1.2100, -77.2900, 'Parque Bolívar', now() - interval '8 hours',
+   'Perro mediano sin placa ni collar. Lo tengo en casa mientras aparece su dueño.', 5, now() - interval '7 hours', now() - interval '8 hours');
 
 alter table public.casos enable trigger casos_despues_insertar;
 
@@ -149,13 +154,14 @@ insert into public.reportes (id, autor_id, especie, raza, color, tamano, sexo, e
 -- ---------------------------------------------------------------------
 -- Lecturas de microchip: 1 de mascota registrada (Nina) y 1 huérfana
 -- ---------------------------------------------------------------------
-insert into public.lecturas_microchip (id, veterinario_id, codigo, mascota_id, caso_id, lat, lng, establecimiento, leido_en, creado_en) values
+insert into public.lecturas_microchip (id, veterinario_id, codigo, mascota_id, caso_id, lat, lng, establecimiento, leido_por, leido_en, creado_en) values
   ('f0000000-0000-0000-0000-000000000001', '33333333-3333-3333-3333-333333333333', '900164000123789',
    'a0000000-0000-0000-0000-000000000004', 'c0000000-0000-0000-0000-000000000004',
-   1.2320, -77.3010, 'Clínica Veterinaria San Roque', now() - interval '5 days' + interval '3 hours', now() - interval '5 days' + interval '3 hours'),
+   1.2320, -77.3010, 'Clínica Veterinaria San Roque', 'Dra. Paula Ortiz', now() - interval '5 days' + interval '3 hours', now() - interval '5 days' + interval '3 hours'),
+  -- Lectura huérfana y sin ubicación: se hizo en el mostrador de la clínica.
   ('f0000000-0000-0000-0000-000000000002', '33333333-3333-3333-3333-333333333333', '999000111222333',
    null, null,
-   1.2090, -77.2850, 'Clínica Veterinaria San Roque', now() - interval '2 days', now() - interval '2 days');
+   null, null, 'Clínica Veterinaria San Roque', 'Dra. Paula Ortiz', now() - interval '2 days', now() - interval '2 days');
 
 -- ---------------------------------------------------------------------
 -- Coincidencias
@@ -181,7 +187,11 @@ insert into public.verificaciones (id, caso_id, reclamante_id, verificador_id, c
   ('e0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000004', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222',
    'd0000000-0000-0000-0000-000000000004', 'APROBADA', 1, true, now() - interval '4 days', now() - interval '4 days' + interval '2 hours'),
   ('e0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222',
-   'd0000000-0000-0000-0000-000000000003', 'BLOQUEADA', 3, false, now() - interval '36 hours', now() - interval '33 hours');
+   'd0000000-0000-0000-0000-000000000003', 'BLOQUEADA', 3, false, now() - interval '36 hours', now() - interval '33 hours'),
+  -- Pendiente sobre K5: Andrés todavía no ha creado las preguntas. Es el
+  -- fixture de la rama nueva de HU-03 para la sustentación.
+  ('e0000000-0000-0000-0000-000000000003', 'c0000000-0000-0000-0000-000000000005', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222',
+   null, 'PENDIENTE', 0, false, now() - interval '6 hours', null);
 
 -- Respuestas de la verificación aprobada (intento 1, las 3 correctas)
 insert into public.respuestas_verif (verificacion_id, dato_reservado_id, intento, respuesta_dada, coincide_auto, correcta, creado_en)

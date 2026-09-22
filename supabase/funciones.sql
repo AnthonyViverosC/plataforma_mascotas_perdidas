@@ -576,6 +576,67 @@ create trigger casos_despues_actualizar
   after update on public.casos
   for each row execute function public.casos_despues_actualizar();
 
+-- Cambio de perfil sin perder la sesión.
+-- Una misma persona puede encontrar un animal hoy y perder el suyo mañana: el
+-- rol es una etiqueta de lo que viene a hacer, no un privilegio. Se permiten
+-- los mismos tres que en el registro; ADMIN nunca se autoasigna.
+create or replace function public.cambiar_rol(p_rol text)
+returns public.rol_usuario
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_rol public.rol_usuario;
+begin
+  if auth.uid() is null then
+    raise exception 'Necesitas una sesión para cambiar de perfil.';
+  end if;
+
+  v_rol := case upper(btrim(coalesce(p_rol, '')))
+             when 'PROPIETARIO' then 'PROPIETARIO'::public.rol_usuario
+             when 'VETERINARIO' then 'VETERINARIO'::public.rol_usuario
+             when 'CIUDADANO'   then 'CIUDADANO'::public.rol_usuario
+             else null
+           end;
+  if v_rol is null then
+    raise exception 'Perfil no válido. El perfil de administrador no se puede elegir.';
+  end if;
+  if public.mi_rol() = 'ADMIN' then
+    raise exception 'Un administrador no cambia su perfil desde la aplicación.';
+  end if;
+
+  update public.perfiles set rol = v_rol where id = auth.uid();
+  return v_rol;
+end;
+$$;
+
+-- Contacto de quien reportó un avistamiento, para el dueño del caso.
+-- Va en un solo sentido: el dueño ve a quién llamar, pero su propio teléfono
+-- NO se publica. Solo se entrega si ese reporte figura como coincidencia de un
+-- caso suyo, así que nadie puede sondear reportes ajenos.
+create or replace function public.contacto_reporte(p_reporte uuid)
+returns table (nombre text, telefono text)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  if not exists (
+    select 1 from public.coincidencias co
+      join public.casos c on c.id = co.caso_id
+     where co.reporte_id = p_reporte and c.creador_id = auth.uid()) then
+    raise exception 'Solo el dueño del caso puede ver el contacto de quien reportó.' using errcode = '42501';
+  end if;
+  return query
+    select p.nombre, p.telefono
+      from public.reportes r
+      join public.perfiles p on p.id = r.autor_id
+     where r.id = p_reporte;
+end;
+$$;
+
 -- Ubicación exacta: solo para el creador del caso.
 create or replace function public.ubicacion_exacta_caso(p_caso uuid)
 returns table (lat double precision, lng double precision)
@@ -707,9 +768,11 @@ begin
     raise exception 'Las lecturas de microchip no se pueden borrar; anúlalas con una justificación.'
       using errcode = '42501';
   end if;
-  if (new.codigo, new.veterinario_id, new.lat, new.lng, new.establecimiento, new.leido_en, new.creado_en)
+  if (new.codigo, new.veterinario_id, new.lat, new.lng, new.establecimiento, new.leido_por,
+      new.leido_en, new.creado_en)
      is distinct from
-     (old.codigo, old.veterinario_id, old.lat, old.lng, old.establecimiento, old.leido_en, old.creado_en) then
+     (old.codigo, old.veterinario_id, old.lat, old.lng, old.establecimiento, old.leido_por,
+      old.leido_en, old.creado_en) then
     raise exception 'Las lecturas de microchip son inmutables.' using errcode = '42501';
   end if;
   if old.anulada and (new.anulada is distinct from old.anulada
@@ -727,8 +790,77 @@ create trigger lecturas_proteger
   before update or delete on public.lecturas_microchip
   for each row execute function public.lecturas_proteger();
 
+-- Consulta previa: resuelve el microchip ANTES de guardar nada, para que el
+-- auxiliar vea qué está registrando. Solo lee de mascotas, que ya es de lectura
+-- pública, así que no expone ningún dato nuevo.
+create or replace function public.consultar_microchip(p_codigo text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_m record;
+  v_caso record;
+  v_codigo text := btrim(coalesce(p_codigo, ''));
+begin
+  if public.mi_rol() is distinct from 'VETERINARIO' then
+    raise exception 'Solo el personal veterinario puede consultar microchips.' using errcode = '42501';
+  end if;
+  if v_codigo !~ '^[0-9]{15}$' then
+    raise exception 'El microchip debe tener 15 dígitos numéricos.';
+  end if;
+
+  select m.id, m.nombre, m.especie, m.raza, m.color_principal, m.tamano, m.sexo,
+         m.temperamento, m.nota_manejo,
+         (select f.url from public.fotos_mascota f
+           where f.mascota_id = m.id
+           order by f.es_principal desc, f.orden asc limit 1) as foto_url
+    into v_m
+    from public.mascotas m
+   where m.microchip = v_codigo;
+
+  if not found then
+    return jsonb_build_object('codigo', v_codigo, 'registrada', false, 'creara_caso', false);
+  end if;
+
+  select c.id, c.tipo, c.estado into v_caso
+    from public.casos c
+   where c.mascota_id = v_m.id and c.estado in ('ABIERTO', 'EN_VERIFICACION')
+   order by (c.tipo = 'PERDIDA') desc, c.creado_en desc
+   limit 1;
+
+  return jsonb_build_object(
+    'codigo',          v_codigo,
+    'registrada',      true,
+    'mascota_id',      v_m.id,
+    'mascota_nombre',  v_m.nombre,
+    'especie',         v_m.especie,
+    'raza',            v_m.raza,
+    'color_principal', v_m.color_principal,
+    'tamano',          v_m.tamano,
+    'sexo',            v_m.sexo,
+    'temperamento',    v_m.temperamento,
+    'nota_manejo',     v_m.nota_manejo,
+    'foto_url',        v_m.foto_url,
+    'caso_id',         v_caso.id,
+    'caso_tipo',       v_caso.tipo,
+    'caso_estado',     v_caso.estado,
+    'creara_caso',     v_caso.id is null);
+end;
+$$;
+
+-- La firma cambió (ubicación opcional + leido_por): se elimina la anterior para
+-- no dejar una sobrecarga colgando si se vuelve a ejecutar este archivo.
+drop function if exists public.registrar_lectura(text, double precision, double precision, text);
+
 create or replace function public.registrar_lectura(
-  p_codigo text, p_lat double precision, p_lng double precision, p_establecimiento text)
+  p_codigo text,
+  p_establecimiento text,
+  p_leido_por text,
+  p_lat double precision default null,
+  p_lng double precision default null)
 returns jsonb
 language plpgsql
 security definer
@@ -741,6 +873,8 @@ declare
   v_caso_creado boolean := false;
   v_lectura uuid;
   v_codigo text := btrim(coalesce(p_codigo, ''));
+  v_lugar text := btrim(coalesce(p_establecimiento, ''));
+  v_quien text := btrim(coalesce(p_leido_por, ''));
 begin
   if public.mi_rol() is distinct from 'VETERINARIO' then
     raise exception 'Solo el personal veterinario puede registrar lecturas de microchip.'
@@ -749,11 +883,11 @@ begin
   if v_codigo !~ '^[0-9]{15}$' then
     raise exception 'El microchip debe tener 15 dígitos numéricos.';
   end if;
-  if p_lat is null or p_lng is null then
-    raise exception 'Marca en el mapa la ubicación donde se hizo la lectura.';
+  if char_length(v_lugar) < 2 then
+    raise exception 'Indica el nombre de la veterinaria donde se hizo la lectura.';
   end if;
-  if char_length(btrim(coalesce(p_establecimiento, ''))) < 2 then
-    raise exception 'Indica el nombre del establecimiento donde se hizo la lectura.';
+  if char_length(v_quien) < 2 then
+    raise exception 'Indica quién hizo la lectura.';
   end if;
 
   select m.id, m.nombre, m.propietario_id into v_m from public.mascotas m where m.microchip = v_codigo;
@@ -764,26 +898,32 @@ begin
      order by (c.tipo = 'PERDIDA') desc, c.creado_en desc
      limit 1;
 
+    -- Única rama que necesita coordenadas: abrir el caso de hallazgo.
     if v_caso is null then
+      if p_lat is null or p_lng is null then
+        raise exception 'Esta mascota no tiene un caso abierto. Marca en el mapa dónde apareció para abrir el caso de hallazgo.';
+      end if;
       insert into public.casos (mascota_id, creador_id, tipo, lat, lng, direccion_texto, ocurrido_en, descripcion)
-      values (v_m.id, v_uid, 'HALLAZGO', p_lat, p_lng, btrim(p_establecimiento), now(),
-              format('Caso abierto automáticamente por lectura de microchip en %s.', btrim(p_establecimiento)))
+      values (v_m.id, v_uid, 'HALLAZGO', p_lat, p_lng, v_lugar, now(),
+              format('Caso abierto automáticamente por lectura de microchip en %s.', v_lugar))
       returning id into v_caso;
       v_caso_creado := true;
     end if;
   end if;
 
-  insert into public.lecturas_microchip (veterinario_id, codigo, mascota_id, caso_id, lat, lng, establecimiento)
-  values (v_uid, v_codigo, v_m.id, v_caso, p_lat, p_lng, btrim(p_establecimiento))
+  insert into public.lecturas_microchip
+    (veterinario_id, codigo, mascota_id, caso_id, lat, lng, establecimiento, leido_por)
+  values (v_uid, v_codigo, v_m.id, v_caso, p_lat, p_lng, v_lugar, v_quien)
   returning id into v_lectura;
 
   if v_caso is not null then
     perform public._evento(v_caso, 'LECTURA_MICROCHIP', v_uid,
-      format('Lectura del microchip %s en %s.', public._enmascarar_chip(v_codigo), btrim(p_establecimiento)));
+      format('Lectura del microchip %s en %s, por %s.',
+             public._enmascarar_chip(v_codigo), v_lugar, v_quien));
     perform public._notificar(v_m.propietario_id,
       format('Leyeron el microchip de %s', v_m.nombre),
       format('El microchip de %s fue leído en %s el %s. Revisa el caso para coordinar.',
-             v_m.nombre, btrim(p_establecimiento), public._fecha_local(now())),
+             v_m.nombre, v_lugar, public._fecha_local(now())),
       '/caso/' || v_caso::text);
   end if;
 
@@ -931,6 +1071,7 @@ as $$
 declare
   v_id uuid;
   v_mascota uuid;
+  v_tiene_reservados boolean;
 begin
   if exists (select 1 from public.verificaciones
               where caso_id = p_caso and reclamante_id = p_reclamante and estado = 'BLOQUEADA') then
@@ -945,9 +1086,9 @@ begin
   end if;
 
   select mascota_id into v_mascota from public.casos where id = p_caso;
-  if (select count(*) from public.datos_reservados where mascota_id = v_mascota) < 3 then
-    raise exception 'La mascota no tiene datos reservados suficientes para verificar al dueño.';
-  end if;
+  -- Sin datos reservados no se aborta: las preguntas las creará quien encontró al animal.
+  v_tiene_reservados := v_mascota is not null
+    and (select count(*) from public.datos_reservados where mascota_id = v_mascota) >= 3;
 
   insert into public.verificaciones (caso_id, reclamante_id, verificador_id, coincidencia_id)
   values (p_caso, p_reclamante, p_verificador, p_coincidencia)
@@ -957,13 +1098,82 @@ begin
 
   perform public._evento(p_caso, 'VERIFICACION_INICIADA', coalesce(auth.uid(), p_verificador),
     'Se inició la verificación de propiedad antes de la entrega.');
-  perform public._notificar(p_reclamante, 'Verificación de propiedad iniciada',
-    'Responde las 3 preguntas de seguridad sobre tu mascota para continuar con la entrega.',
-    '/verificacion/' || v_id::text);
-  perform public._notificar(p_verificador, 'Verificación de propiedad iniciada',
-    'Cuando el reclamante responda, revisa sus respuestas y decide si apruebas la entrega.',
-    '/verificacion/' || v_id::text);
+
+  if v_tiene_reservados then
+    perform public._notificar(p_reclamante, 'Verificación de propiedad iniciada',
+      'Responde las preguntas de seguridad sobre tu mascota para continuar con la entrega.',
+      '/verificacion/' || v_id::text);
+    perform public._notificar(p_verificador, 'Verificación de propiedad iniciada',
+      'Cuando el reclamante responda, revisa sus respuestas y decide si apruebas la entrega.',
+      '/verificacion/' || v_id::text);
+  else
+    perform public._notificar(p_verificador, 'Crea las preguntas de verificación',
+      'Esta mascota no tiene datos reservados. Mira al animal y escribe 3 preguntas que solo su dueño sabría responder.',
+      '/verificacion/' || v_id::text);
+    perform public._notificar(p_reclamante, 'Verificación de propiedad iniciada',
+      'Quien encontró al animal está preparando las preguntas. Te avisamos en cuanto estén listas.',
+      '/verificacion/' || v_id::text);
+  end if;
   return v_id;
+end;
+$$;
+
+-- Quien encontró al animal crea las preguntas cuando la mascota no tiene datos reservados.
+create or replace function public.crear_preguntas_verificacion(p_verificacion uuid, p_preguntas jsonb)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v record;
+  v_mascota uuid;
+  v_item jsonb;
+  v_orden int := 0;
+begin
+  select * into v from public.verificaciones where id = p_verificacion for update;
+  if not found then
+    raise exception 'La verificación no existe.';
+  end if;
+  if v.verificador_id is distinct from auth.uid() then
+    raise exception 'Solo quien encontró al animal puede crear las preguntas.' using errcode = '42501';
+  end if;
+  if v.estado <> 'PENDIENTE' then
+    raise exception 'Esta verificación ya fue resuelta.';
+  end if;
+  if v.intentos > 0 then
+    raise exception 'El reclamante ya respondió: las preguntas no se pueden cambiar.';
+  end if;
+  if exists (select 1 from public.preguntas_verif where verificacion_id = p_verificacion) then
+    raise exception 'Las preguntas de esta verificación ya fueron creadas.';
+  end if;
+
+  select mascota_id into v_mascota from public.casos where id = v.caso_id;
+  if v_mascota is not null
+     and (select count(*) from public.datos_reservados where mascota_id = v_mascota) >= 3 then
+    raise exception 'Esta mascota ya tiene los datos reservados de su dueño: no hace falta crear preguntas.';
+  end if;
+
+  if jsonb_typeof(p_preguntas) <> 'array' or jsonb_array_length(p_preguntas) < 3 then
+    raise exception 'Debes crear al menos 3 preguntas con su respuesta.' using errcode = 'check_violation';
+  end if;
+  if (select count(distinct public.normalizar_texto(x ->> 'pregunta'))
+        from jsonb_array_elements(p_preguntas) x) < jsonb_array_length(p_preguntas) then
+    raise exception 'Las preguntas no pueden repetirse.';
+  end if;
+
+  for v_item in select * from jsonb_array_elements(p_preguntas) loop
+    insert into public.preguntas_verif (verificacion_id, pregunta, respuesta, orden)
+    values (p_verificacion, v_item ->> 'pregunta', v_item ->> 'respuesta', v_orden);
+    v_orden := v_orden + 1;
+  end loop;
+
+  perform public._evento(v.caso_id, 'VERIFICACION_INICIADA', auth.uid(),
+    format('Quien encontró al animal creó %s preguntas de seguridad.', v_orden));
+  perform public._notificar(v.reclamante_id, 'Preguntas listas para responder',
+    'Quien encontró al animal ya preparó las preguntas. Respóndelas para continuar con la entrega.',
+    '/verificacion/' || p_verificacion::text);
+  return v_orden;
 end;
 $$;
 
@@ -1077,9 +1287,9 @@ begin
 end;
 $$;
 
--- Preguntas (nunca respuestas) para los participantes de la verificación.
+-- Preguntas (nunca respuestas) para los participantes, de cualquiera de los dos orígenes.
 create or replace function public.preguntas_verificacion(p_verificacion uuid)
-returns table (id uuid, pregunta text)
+returns table (id uuid, pregunta text, origen text)
 language plpgsql
 stable
 security definer
@@ -1091,12 +1301,18 @@ begin
     raise exception 'Solo los participantes de la verificación pueden ver las preguntas.' using errcode = '42501';
   end if;
   return query
-    select d.id, d.pregunta
-      from public.verificaciones v
-      join public.casos c on c.id = v.caso_id
-      join public.datos_reservados d on d.mascota_id = c.mascota_id
-     where v.id = p_verificacion
-     order by d.id;
+    with fuentes as (
+      select d.id, d.pregunta, 'MASCOTA'::text as origen, 0 as orden
+        from public.verificaciones v
+        join public.casos c on c.id = v.caso_id
+        join public.datos_reservados d on d.mascota_id = c.mascota_id
+       where v.id = p_verificacion
+      union all
+      select q.id, q.pregunta, 'VERIFICADOR'::text, q.orden::int
+        from public.preguntas_verif q
+       where q.verificacion_id = p_verificacion
+    )
+    select f.id, f.pregunta, f.origen from fuentes f order by f.origen, f.orden, f.id;
 end;
 $$;
 
@@ -1138,21 +1354,42 @@ begin
   end if;
 
   select c.id, c.mascota_id, m.nombre, m.propietario_id into v_c
-    from public.casos c join public.mascotas m on m.id = c.mascota_id where c.id = v.caso_id;
+    from public.casos c left join public.mascotas m on m.id = c.mascota_id where c.id = v.caso_id;
+
+  if not exists (
+    select 1 from public.datos_reservados d where d.mascota_id = v_c.mascota_id
+    union all
+    select 1 from public.preguntas_verif q where q.verificacion_id = p_verificacion) then
+    raise exception 'Todavía no hay preguntas: quien encontró al animal debe crearlas primero.';
+  end if;
 
   -- Todas las preguntas deben tener respuesta antes de contar como intento
-  for v_d in select d.id from public.datos_reservados d where d.mascota_id = v_c.mascota_id loop
+  for v_d in
+    select d.id from public.datos_reservados d where d.mascota_id = v_c.mascota_id
+    union all
+    select q.id from public.preguntas_verif q where q.verificacion_id = p_verificacion
+  loop
     if public.normalizar_texto(p_respuestas ->> v_d.id::text) = '' then
       raise exception 'Responde todas las preguntas antes de enviar.';
     end if;
   end loop;
 
   v_intento := v.intentos + 1;
-  for v_d in select d.id, d.respuesta from public.datos_reservados d where d.mascota_id = v_c.mascota_id loop
+  for v_d in
+    select d.id, d.respuesta, 'MASCOTA'::text as origen
+      from public.datos_reservados d where d.mascota_id = v_c.mascota_id
+    union all
+    select q.id, q.respuesta, 'VERIFICADOR'::text
+      from public.preguntas_verif q where q.verificacion_id = p_verificacion
+  loop
     v_dada := left(btrim(p_respuestas ->> v_d.id::text), 200);
     v_ok := public.normalizar_texto(v_dada) = v_d.respuesta;
-    insert into public.respuestas_verif (verificacion_id, dato_reservado_id, intento, respuesta_dada, coincide_auto)
-    values (p_verificacion, v_d.id, v_intento, v_dada, v_ok);
+    insert into public.respuestas_verif
+      (verificacion_id, dato_reservado_id, pregunta_verif_id, intento, respuesta_dada, coincide_auto)
+    values (p_verificacion,
+            case when v_d.origen = 'MASCOTA' then v_d.id end,
+            case when v_d.origen = 'VERIFICADOR' then v_d.id end,
+            v_intento, v_dada, v_ok);
     v_total := v_total + 1;
     if v_ok then
       v_aciertos := v_aciertos + 1;
@@ -1178,10 +1415,13 @@ begin
   elsif v_estado = 'BLOQUEADA' then
     perform public._evento(v.caso_id, 'VERIFICACION_BLOQUEADA', auth.uid(),
       'Verificación bloqueada tras 3 intentos fallidos del mismo reclamante.');
-    perform public._notificar(v_c.propietario_id, 'Verificación bloqueada',
-      format('Se bloqueó una verificación sobre %s tras 3 intentos fallidos. Si no fuiste tú, revisa tu cuenta.', v_c.nombre),
-      '/verificacion/' || p_verificacion::text);
-    if v.verificador_id <> v_c.propietario_id then
+    if v_c.propietario_id is not null then
+      perform public._notificar(v_c.propietario_id, 'Verificación bloqueada',
+        format('Se bloqueó una verificación sobre %s tras 3 intentos fallidos. Si no fuiste tú, revisa tu cuenta.',
+               coalesce(v_c.nombre, 'la mascota')),
+        '/verificacion/' || p_verificacion::text);
+    end if;
+    if v.verificador_id is distinct from v_c.propietario_id then
       perform public._notificar(v.verificador_id, 'Verificación bloqueada',
         'El reclamante falló 3 intentos. No entregues al animal a esta persona.',
         '/verificacion/' || p_verificacion::text);
@@ -1295,7 +1535,8 @@ begin
   if not found or auth.uid() not in (v.reclamante_id, v.verificador_id) then
     raise exception 'Solo los participantes de la verificación pueden ver los contactos.' using errcode = '42501';
   end if;
-  if not (v.superada or v.estado = 'APROBADA') then
+  -- Solo con la entrega ya aprobada: superar las preguntas no basta.
+  if v.estado <> 'APROBADA' then
     return;
   end if;
   return query
@@ -1314,25 +1555,33 @@ revoke execute on function public._vincular_lecturas(uuid) from public, anon, au
 revoke execute on function public._crear_verificacion(uuid, uuid, uuid, uuid) from public, anon, authenticated;
 
 revoke execute on function public.guardar_mascota(uuid, jsonb, jsonb, jsonb) from public, anon;
-revoke execute on function public.registrar_lectura(text, double precision, double precision, text) from public, anon;
+revoke execute on function public.consultar_microchip(text) from public, anon;
+revoke execute on function public.registrar_lectura(text, text, text, double precision, double precision) from public, anon;
 revoke execute on function public.anular_lectura(uuid, text) from public, anon;
 revoke execute on function public.guardar_coincidencias(jsonb) from public, anon;
 revoke execute on function public.iniciar_verificacion(uuid) from public, anon;
 revoke execute on function public.preguntas_verificacion(uuid) from public, anon;
+revoke execute on function public.crear_preguntas_verificacion(uuid, jsonb) from public, anon;
 revoke execute on function public.verificar_respuestas(uuid, jsonb) from public, anon;
 revoke execute on function public.resolver_verificacion(uuid, jsonb, boolean) from public, anon;
 revoke execute on function public.contactos_verificacion(uuid) from public, anon;
 revoke execute on function public.ubicacion_exacta_caso(uuid) from public, anon;
+revoke execute on function public.cambiar_rol(text) from public, anon;
+revoke execute on function public.contacto_reporte(uuid) from public, anon;
 
 grant execute on function public.guardar_mascota(uuid, jsonb, jsonb, jsonb) to authenticated;
-grant execute on function public.registrar_lectura(text, double precision, double precision, text) to authenticated;
+grant execute on function public.consultar_microchip(text) to authenticated;
+grant execute on function public.registrar_lectura(text, text, text, double precision, double precision) to authenticated;
 grant execute on function public.anular_lectura(uuid, text) to authenticated;
 grant execute on function public.guardar_coincidencias(jsonb) to authenticated;
 grant execute on function public.iniciar_verificacion(uuid) to authenticated;
 grant execute on function public.preguntas_verificacion(uuid) to authenticated;
+grant execute on function public.crear_preguntas_verificacion(uuid, jsonb) to authenticated;
 grant execute on function public.verificar_respuestas(uuid, jsonb) to authenticated;
 grant execute on function public.resolver_verificacion(uuid, jsonb, boolean) to authenticated;
 grant execute on function public.contactos_verificacion(uuid) to authenticated;
 grant execute on function public.ubicacion_exacta_caso(uuid) to authenticated;
+grant execute on function public.cambiar_rol(text) to authenticated;
+grant execute on function public.contacto_reporte(uuid) to authenticated;
 grant execute on function public.distancia_km(double precision, double precision, double precision, double precision) to anon, authenticated;
 grant execute on function public.normalizar_texto(text) to anon, authenticated;

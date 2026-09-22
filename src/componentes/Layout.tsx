@@ -2,28 +2,38 @@ import { useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useSesion } from '../hooks/useSesion';
 import { supabaseConfigurado } from '../lib/supabase';
-import { ETIQUETA_ROL, type Rol } from '../tipos/tipos';
-import { Campana } from './Campana';
-import { IconoMenu, IconoPata, IconoSalir, IconoX } from './Iconos';
+import type { Rol } from '../tipos/tipos';
+import { IconoMenu, IconoPata, IconoX } from './Iconos';
 import { Aviso } from './ui';
 
 interface Enlace {
   a: string;
   texto: string;
   roles?: Rol[];
-  requiereSesion?: boolean;
 }
 
+// Solo destinos, ninguno condicionado a "tener cuenta". Reportar una pérdida
+// ya no pide rol: el asistente recoge los datos de la persona en su paso 1.
 const ENLACES: Enlace[] = [
-  { a: '/buscar', texto: 'Buscar' },
+  { a: '/buscar', texto: 'Mascotas perdidas' },
   { a: '/reportar', texto: 'Reportar hallazgo' },
-  { a: '/casos/nuevo', texto: 'Reportar pérdida', roles: ['PROPIETARIO', 'ADMIN'] },
-  { a: '/panel', texto: 'Mi panel', requiereSesion: true },
+  { a: '/casos/nuevo', texto: 'Reportar pérdida' },
   { a: '/veterinario', texto: 'Lectura de microchip', roles: ['VETERINARIO'] },
 ];
 
+/**
+ * Marco de la aplicación.
+ *
+ * El encabezado no muestra NADA que delate una sesión: ni el nombre, ni el
+ * rol, ni un botón de salir o de cambiar de perfil. Por dentro sí hay una
+ * sesión anónima —sin ella RLS no dejaría escribir nada—, pero la persona
+ * solo ve destinos: buscar, reportar, su panel.
+ *
+ * Para cambiar de perfil durante la sustentación se usa `/entrar?demo=1`,
+ * que no redirige aunque ya haya sesión abierta.
+ */
 export function Layout() {
-  const { perfil, usuario, anonimo, cerrarSesion } = useSesion();
+  const { perfil, usuario } = useSesion();
   const [menu, setMenu] = useState(false);
   const { pathname } = useLocation();
   const [rutaMenu, setRutaMenu] = useState(pathname);
@@ -34,17 +44,7 @@ export function Layout() {
     setMenu(false);
   }
 
-  // Un perfil anónimo no se puede recuperar después de salir: se pide confirmación.
-  const salir = () => {
-    if (anonimo && !window.confirm('Si cambias de perfil no podrás volver a este (tus mascotas y casos quedan guardados). ¿Continuar?')) return;
-    void cerrarSesion();
-  };
-
-  const visibles = ENLACES.filter((e) => {
-    if (e.roles) return perfil && e.roles.includes(perfil.rol);
-    if (e.requiereSesion) return Boolean(usuario);
-    return true;
-  });
+  const visibles = ENLACES.filter((e) => (e.roles ? perfil && e.roles.includes(perfil.rol) : true));
 
   const claseEnlace = ({ isActive }: { isActive: boolean }) =>
     `rounded-md px-2.5 py-1.5 text-[13px] font-medium transition ${isActive ? 'bg-fondo text-tinta' : 'text-suave hover:text-tinta'}`;
@@ -72,29 +72,9 @@ export function Layout() {
           </nav>
 
           <div className="ml-auto flex items-center gap-2">
-            {usuario && perfil ? (
-              <>
-                <span className="hidden items-center gap-2 rounded-full border border-borde bg-fondo py-1 pl-1 pr-3 text-xs sm:flex">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-acento text-[10px] font-bold text-white">
-                    {perfil.nombre.slice(0, 1).toUpperCase()}
-                  </span>
-                  <span className="max-w-[140px] truncate font-medium text-tinta">{perfil.nombre}</span>
-                  <span className="text-suave">· {ETIQUETA_ROL[perfil.rol]}</span>
-                </span>
-                <Campana usuarioId={usuario.id} />
-                <button
-                  type="button"
-                  onClick={salir}
-                  className="hidden h-9 w-9 items-center justify-center rounded-full border border-borde bg-white text-suave hover:text-tinta sm:flex"
-                  aria-label="Cambiar de perfil"
-                  title="Cambiar de perfil"
-                >
-                  <IconoSalir tamano={16} />
-                </button>
-              </>
-            ) : (
-              <Link to="/entrar" className="hidden rounded-lg bg-tinta px-3 py-2 text-[13px] font-medium text-white hover:bg-black sm:block">
-                Entrar
+            {!usuario && (
+              <Link to="/reportar" className="hidden rounded-lg bg-tinta px-3 py-2 text-[13px] font-medium text-white hover:bg-black sm:block">
+                Reportar hallazgo
               </Link>
             )}
             <button
@@ -111,11 +91,6 @@ export function Layout() {
 
         {menu && (
           <nav className="border-t border-borde bg-white px-3 py-2 lg:hidden" aria-label="Menú móvil">
-            {perfil && (
-              <p className="px-2 pb-2 pt-1 text-xs text-suave">
-                {perfil.nombre} · {ETIQUETA_ROL[perfil.rol]}
-              </p>
-            )}
             <div className="flex flex-col">
               <NavLink to="/" end className={claseEnlace}>
                 Inicio
@@ -125,18 +100,9 @@ export function Layout() {
                   {e.texto}
                 </NavLink>
               ))}
-              {usuario ? (
-                <>
-                  <NavLink to="/notificaciones" className={claseEnlace}>
-                    Notificaciones
-                  </NavLink>
-                  <button type="button" onClick={salir} className="rounded-md px-2.5 py-1.5 text-left text-[13px] font-medium text-alerta">
-                    Cambiar de perfil
-                  </button>
-                </>
-              ) : (
-                <NavLink to="/entrar" className={claseEnlace}>
-                  Entrar
+              {usuario && (
+                <NavLink to="/notificaciones" className={claseEnlace}>
+                  Notificaciones
                 </NavLink>
               )}
             </div>

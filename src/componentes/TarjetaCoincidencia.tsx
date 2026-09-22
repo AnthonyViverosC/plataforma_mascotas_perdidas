@@ -1,21 +1,17 @@
 import { useState } from 'react';
 import { formatearFecha, tiempoRelativo } from '../lib/formato';
 import { describirMotivos } from '../lib/matching';
+import { mensajeError, supabase } from '../lib/supabase';
 import type { CoincidenciaConReporte, EstadoCoincidencia } from '../tipos/tipos';
 import { ETIQUETA_ESPECIE, ETIQUETA_ESTADO_ANIMAL, ETIQUETA_ESTADO_COINCIDENCIA } from '../tipos/tipos';
 import { Boton } from './Boton';
-import { IconoCheck, IconoInterrogacion, IconoMapa, IconoReloj, IconoX } from './Iconos';
+import { IconoCheck, IconoMapa, IconoReloj, IconoUsuario, IconoX } from './Iconos';
 import { Insignia } from './ui';
 
-const ETIQUETA_CRITERIO: Record<string, string> = {
-  MICROCHIP: 'Microchip',
-  DISTANCIA: 'Distancia',
-  TIEMPO: 'Tiempo',
-  RAZA: 'Raza',
-  COLOR: 'Color',
-  TAMANO: 'Tamaño',
-  SEXO: 'Sexo',
-};
+interface Contacto {
+  nombre: string;
+  telefono: string;
+}
 
 function colorPuntaje(p: number) {
   if (p >= 75) return 'bg-acento';
@@ -34,7 +30,23 @@ export function TarjetaCoincidencia({
   onDecidir?: (estado: Decision) => Promise<void>;
 }) {
   const [enCurso, setEnCurso] = useState<Decision | null>(null);
+  const [contacto, setContacto] = useState<Contacto | null>(null);
+  const [buscandoContacto, setBuscandoContacto] = useState(false);
+  const [errorContacto, setErrorContacto] = useState<string | null>(null);
   const r = coincidencia.reporte;
+
+  /** El dueño decide si llama: el teléfono no se carga hasta que lo pide. */
+  const verContacto = async () => {
+    setErrorContacto(null);
+    setBuscandoContacto(true);
+    const { data, error } = await supabase.rpc('contacto_reporte', { p_reporte: coincidencia.reporte_id });
+    setBuscandoContacto(false);
+    if (error) {
+      setErrorContacto(mensajeError(error));
+      return;
+    }
+    setContacto(((data as Contacto[] | null) ?? [])[0] ?? null);
+  };
   const distancia = coincidencia.motivos.find((m) => m.criterio === 'DISTANCIA');
   const decidida = coincidencia.estado === 'CONFIRMADA' || coincidencia.estado === 'DESCARTADA';
 
@@ -96,39 +108,38 @@ export function TarjetaCoincidencia({
           </div>
 
           <p className="text-sm font-medium text-tinta">{describirMotivos(coincidencia.motivos)}</p>
-
-          <details className="text-xs text-suave">
-            <summary className="cursor-pointer select-none font-medium text-acento">Ver desglose del puntaje</summary>
-            <ul className="mt-2 grid grid-cols-2 gap-1 sm:grid-cols-3">
-              {coincidencia.motivos.map((m) => (
-                <li key={m.criterio} className="flex justify-between rounded bg-fondo px-2 py-1">
-                  <span>{ETIQUETA_CRITERIO[m.criterio] ?? m.criterio}</span>
-                  <span className="font-mono font-semibold text-tinta">+{m.aporte}</span>
-                </li>
-              ))}
-            </ul>
-          </details>
           {r?.nota && <p className="text-xs italic text-suave">“{r.nota}”</p>}
+
+          {onDecidir &&
+            (contacto ? (
+              <p className="flex flex-wrap items-center gap-1.5 rounded-lg border border-acento/30 bg-acento-claro px-2.5 py-1.5 text-xs text-teal-900">
+                <IconoUsuario tamano={13} />
+                Lo vio <strong>{contacto.nombre}</strong> ·{' '}
+                <a href={`tel:${contacto.telefono}`} className="font-semibold text-acento underline">
+                  {contacto.telefono}
+                </a>
+              </p>
+            ) : (
+              <button
+                type="button"
+                onClick={verContacto}
+                disabled={buscandoContacto}
+                className="text-xs font-semibold text-acento hover:underline disabled:opacity-50"
+              >
+                {buscandoContacto ? 'Buscando…' : 'Ver a quién llamar'}
+              </button>
+            ))}
+          {errorContacto && <p className="text-xs font-medium text-alerta">{errorContacto}</p>}
         </div>
       </div>
 
       {onDecidir && !decidida && (
-        <div className="grid grid-cols-1 gap-2 border-t border-borde bg-fondo/60 p-3 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-2 border-t border-borde bg-fondo/60 p-3 sm:grid-cols-2">
           <Boton variante="acento" tamano="sm" icono={<IconoCheck tamano={14} />} cargando={enCurso === 'CONFIRMADA'} disabled={Boolean(enCurso)} onClick={() => decidir('CONFIRMADA')}>
             Es mi mascota
           </Boton>
           <Boton variante="peligro" tamano="sm" icono={<IconoX tamano={14} />} cargando={enCurso === 'DESCARTADA'} disabled={Boolean(enCurso)} onClick={() => decidir('DESCARTADA')}>
             No es mi mascota
-          </Boton>
-          <Boton
-            variante="secundario"
-            tamano="sm"
-            icono={<IconoInterrogacion tamano={14} />}
-            cargando={enCurso === 'NO_SEGURO'}
-            disabled={Boolean(enCurso) || coincidencia.estado === 'NO_SEGURO'}
-            onClick={() => decidir('NO_SEGURO')}
-          >
-            No estoy seguro
           </Boton>
         </div>
       )}

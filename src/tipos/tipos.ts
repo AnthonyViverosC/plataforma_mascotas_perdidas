@@ -126,9 +126,11 @@ export interface LecturaMicrochip {
   codigo: string;
   mascota_id: string | null;
   caso_id: string | null;
-  lat: number;
-  lng: number;
+  /** Solo se guarda cuando la lectura abrió un caso de hallazgo. */
+  lat: number | null;
+  lng: number | null;
   establecimiento: string;
+  leido_por: string;
   leido_en: string;
   anulada: boolean;
   motivo_anulacion: string | null;
@@ -176,7 +178,9 @@ export interface Verificacion {
 export interface RespuestaVerif {
   id: string;
   verificacion_id: string;
-  dato_reservado_id: string;
+  /** Exactamente uno de los dos está relleno (constraint respuestas_verif_una_fuente). */
+  dato_reservado_id: string | null;
+  pregunta_verif_id: string | null;
   intento: number;
   respuesta_dada: string;
   coincide_auto: boolean;
@@ -184,9 +188,13 @@ export interface RespuestaVerif {
   creado_en: string;
 }
 
+/** De dónde salió la pregunta: del dueño al registrar, o de quien encontró al animal. */
+export type OrigenPregunta = 'MASCOTA' | 'VERIFICADOR';
+
 export interface PreguntaVerificacion {
   id: string;
   pregunta: string;
+  origen: OrigenPregunta;
 }
 
 export interface ResultadoIntento {
@@ -226,6 +234,27 @@ export interface ResultadoLectura {
   mascota_nombre: string | null;
   caso_id: string | null;
   caso_creado: boolean;
+}
+
+/** Respuesta de consultar_microchip(): resuelve el chip ANTES de guardar la lectura. */
+export interface ConsultaMicrochip {
+  codigo: string;
+  registrada: boolean;
+  /** true cuando la mascota existe pero no tiene caso abierto: habrá que abrir uno. */
+  creara_caso: boolean;
+  mascota_id?: string;
+  mascota_nombre?: string;
+  especie?: Especie;
+  raza?: string | null;
+  color_principal?: string;
+  tamano?: Tamano;
+  sexo?: Sexo;
+  temperamento?: Temperamento;
+  nota_manejo?: string | null;
+  foto_url?: string | null;
+  caso_id?: string | null;
+  caso_tipo?: TipoCaso | null;
+  caso_estado?: EstadoCaso | null;
 }
 
 // ---------------------------------------------------------------------

@@ -134,11 +134,7 @@ export function MascotaFormulario() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <EncabezadoPagina
-        etiqueta="Mascotas"
-        titulo={edicion ? `Editar a ${datos.nombre}` : 'Registrar mascota'}
-        descripcion="Fotos, datos de identificación y 3 datos reservados para verificar que eres el dueño."
-      />
+      <EncabezadoPagina titulo={edicion ? `Editar a ${datos.nombre}` : 'Registrar mascota'} />
       <form onSubmit={enviar} className="space-y-5" noValidate>
         <Tarjeta className="space-y-4 p-5">
           <EtiquetaSeccion>Datos de la mascota</EtiquetaSeccion>
@@ -224,8 +220,7 @@ export function MascotaFormulario() {
             <EtiquetaSeccion>Datos reservados (obligatorios: 3)</EtiquetaSeccion>
           </div>
           <Aviso tipo="aviso" titulo="Usa datos que solo tú conozcas">
-            No uses datos obvios como el color, la raza o el nombre: aparecen en la ficha pública. Estas respuestas nunca se muestran a nadie y sirven
-            para verificar que eres el dueño antes de la entrega. Se guardan en minúsculas y sin tildes.
+            Nada que se vea en la ficha pública: ni el color, ni la raza, ni el nombre. Nadie verá estas respuestas.
           </Aviso>
           {errores.reservados && <Aviso tipo="alerta">{errores.reservados}</Aviso>}
           {reservados.map((r, i) => (

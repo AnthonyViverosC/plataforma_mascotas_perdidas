@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { Boton, BotonEnlace } from '../componentes/Boton';
 import { AreaTexto, Campo, Selector } from '../componentes/Campo';
-import { IconoRadar } from '../componentes/Iconos';
+import { FormularioPerfil } from '../componentes/FormularioPerfil';
+import { IconoCandado, IconoRadar } from '../componentes/Iconos';
 import { SelectorUbicacion } from '../componentes/Mapa';
+import { SubirFotos } from '../componentes/SubirFotos';
 import { Aviso, Cargando, EncabezadoPagina, EtiquetaSeccion, Insignia, Tarjeta, Vacio } from '../componentes/ui';
 import { useSesion } from '../hooks/useSesion';
 import { ejecutarCrucesDeCaso, type ResultadoCruceCaso } from '../lib/cruces';
@@ -11,22 +13,69 @@ import { formatearFecha } from '../lib/formato';
 import type { Punto } from '../lib/geo';
 import { describirMotivos } from '../lib/matching';
 import { mensajeError, supabase } from '../lib/supabase';
-import { aInputFechaLocal, casoPerdidaSchema, erroresPorCampo } from '../lib/validacion';
-import { ETIQUETA_ESTADO_ANIMAL, type Mascota } from '../tipos/tipos';
+import { aInputFechaLocal, casoPerdidaSchema, erroresPorCampo, mascotaSchema } from '../lib/validacion';
+import {
+  COLORES,
+  ETIQUETA_ESPECIE,
+  ETIQUETA_ESTADO_ANIMAL,
+  ETIQUETA_SEXO,
+  ETIQUETA_TAMANO,
+  ETIQUETA_TEMPERAMENTO,
+  type Mascota,
+} from '../tipos/tipos';
 
+const MASCOTA_VACIA = {
+  nombre: '',
+  especie: '',
+  raza: '',
+  color_principal: '',
+  tamano: '',
+  sexo: 'DESCONOCIDO',
+  microchip: '',
+  temperamento: 'TRANQUILA',
+  nota_manejo: '',
+};
+
+const EJEMPLOS = [
+  '¿Cómo se llama su juguete favorito?',
+  '¿En qué parte del cuerpo tiene una cicatriz o marca?',
+  '¿Qué palabra o sonido la hace venir corriendo?',
+];
+
+/**
+ * Reportar una mascota perdida, de corrido (historia C).
+ *
+ * Antes eran tres pantallas encadenadas —perfil, registrar mascota, crear el
+ * caso— y quien llegaba sin sesión chocaba con una puerta. Ahora es un solo
+ * asistente: la mascota se registra aquí mismo si hace falta.
+ */
 export function NuevoCaso() {
   const { usuario } = useSesion();
   const [params] = useSearchParams();
+
   const [mascotas, setMascotas] = useState<Mascota[]>([]);
   const [conCaso, setConCaso] = useState<Set<string>>(new Set());
   const [cargando, setCargando] = useState(true);
 
-  const [mascotaId, setMascotaId] = useState(params.get('mascota') ?? '');
+  // null = mascota nueva; si no, el id de una ya registrada
+  const [mascotaId, setMascotaId] = useState<string | null>(params.get('mascota'));
+  const [nueva, setNueva] = useState(MASCOTA_VACIA);
+  const [fotos, setFotos] = useState<string[]>([]);
+  const [reservados, setReservados] = useState([
+    { pregunta: '', respuesta: '' },
+    { pregunta: '', respuesta: '' },
+    { pregunta: '', respuesta: '' },
+  ]);
+
   const [punto, setPunto] = useState<Punto | null>(null);
   const [fecha, setFecha] = useState(aInputFechaLocal(new Date()));
   const [zona, setZona] = useState('');
   const [descripcion, setDescripcion] = useState('');
   const [radio, setRadio] = useState(5);
+
+  // Paso 0 = tus datos. Se pide siempre, aunque ya haya sesión: el navegador
+  // puede ser de otra persona y el caso saldría a nombre del anterior.
+  const [paso, setPaso] = useState<0 | 1 | 2>(0);
   const [errores, setErrores] = useState<Record<string, string>>({});
   const [errorGeneral, setErrorGeneral] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
@@ -36,7 +85,10 @@ export function NuevoCaso() {
   const haceUnAno = useMemo(() => aInputFechaLocal(new Date(Date.now() - 365 * 86_400_000)), []);
 
   useEffect(() => {
-    if (!usuario) return;
+    if (!usuario) {
+      setCargando(false);
+      return;
+    }
     let activo = true;
     Promise.all([
       supabase.from('mascotas').select('*').eq('propietario_id', usuario.id).order('nombre'),
@@ -57,48 +109,94 @@ export function NuevoCaso() {
     };
   }, [usuario]);
 
+  const cambiarMascota = (campo: keyof typeof MASCOTA_VACIA, valor: string) => setNueva((d) => ({ ...d, [campo]: valor }));
+  const cambiarReservado = (i: number, campo: 'pregunta' | 'respuesta', valor: string) =>
+    setReservados((l) => l.map((r, j) => (j === i ? { ...r, [campo]: valor } : r)));
+
+  const esNueva = mascotaId === null;
+
+  const validarMascota = () => {
+    if (!esNueva) {
+      if (conCaso.has(mascotaId!)) {
+        setErrores({ mascota_id: 'Esa mascota ya tiene un caso de pérdida abierto.' });
+        return false;
+      }
+      setErrores({});
+      return true;
+    }
+    const r = mascotaSchema.safeParse({ ...nueva, fotos, reservados });
+    if (!r.success) {
+      setErrores(erroresPorCampo(r.error));
+      setErrorGeneral('Revisa los campos marcados en rojo.');
+      return false;
+    }
+    setErrores({});
+    setErrorGeneral(null);
+    return true;
+  };
+
+  const continuar = (e: FormEvent) => {
+    e.preventDefault();
+    if (validarMascota()) setPaso(2);
+  };
+
   const enviar = async (e: FormEvent) => {
     e.preventDefault();
     setErrorGeneral(null);
-    const r = casoPerdidaSchema.safeParse({ mascota_id: mascotaId, punto, ocurrido_en: fecha, direccion_texto: zona, descripcion, radio_km: radio });
+    const r = casoPerdidaSchema
+      .omit({ mascota_id: true })
+      .safeParse({ punto, ocurrido_en: fecha, direccion_texto: zona, descripcion, radio_km: radio });
     if (!r.success) {
       setErrores(erroresPorCampo(r.error));
       return;
     }
-    if (conCaso.has(r.data.mascota_id)) {
-      setErrores({ mascota_id: 'Esta mascota ya tiene un caso de pérdida abierto. Consulta ese caso en tu panel.' });
-      return;
-    }
     setErrores({});
     setEnviando(true);
-    const { data, error } = await supabase
-      .from('casos')
-      .insert({
-        mascota_id: r.data.mascota_id,
-        creador_id: usuario!.id,
-        tipo: 'PERDIDA',
-        lat: r.data.punto.lat,
-        lng: r.data.punto.lng,
-        direccion_texto: r.data.direccion_texto || null,
-        ocurrido_en: new Date(r.data.ocurrido_en).toISOString(),
-        descripcion: r.data.descripcion,
-        radio_km: r.data.radio_km,
-      })
-      .select('id')
-      .single();
-    if (error || !data) {
-      setEnviando(false);
-      setErrorGeneral(mensajeError(error));
-      return;
-    }
-    const casoId = (data as { id: string }).id;
+
+    let idMascota = mascotaId;
     try {
-      const cruce = await ejecutarCrucesDeCaso(casoId);
-      setResultado({ casoId, cruce });
+      if (esNueva) {
+        const m = mascotaSchema.parse({ ...nueva, fotos, reservados });
+        const { fotos: urls, reservados: res, ...datos } = m;
+        const { data, error } = await supabase.rpc('guardar_mascota', {
+          p_id: null,
+          p_mascota: { ...datos, microchip: datos.microchip || null },
+          p_fotos: urls.map((url, i) => ({ url, es_principal: i === 0 })),
+          p_reservados: res,
+        });
+        if (error) throw error;
+        idMascota = data as string;
+      }
+
+      const { data: caso, error: errCaso } = await supabase
+        .from('casos')
+        .insert({
+          mascota_id: idMascota,
+          creador_id: usuario!.id,
+          tipo: 'PERDIDA',
+          lat: r.data.punto.lat,
+          lng: r.data.punto.lng,
+          direccion_texto: r.data.direccion_texto || null,
+          ocurrido_en: new Date(r.data.ocurrido_en).toISOString(),
+          descripcion: r.data.descripcion,
+          radio_km: r.data.radio_km,
+        })
+        .select('id')
+        .single();
+      if (errCaso || !caso) throw errCaso;
+
+      const casoId = (caso as { id: string }).id;
+      try {
+        setResultado({ casoId, cruce: await ejecutarCrucesDeCaso(casoId) });
+      } catch (err) {
+        setResultado({ casoId, cruce: null, errorCruce: mensajeError(err) });
+      }
     } catch (err) {
-      setResultado({ casoId, cruce: null, errorCruce: mensajeError(err) });
+      setErrorGeneral(mensajeError(err));
+      setPaso(1);
+    } finally {
+      setEnviando(false);
     }
-    setEnviando(false);
   };
 
   if (cargando) return <Cargando />;
@@ -107,8 +205,8 @@ export function NuevoCaso() {
     const lista = resultado.cruce?.resultados ?? [];
     return (
       <div className="mx-auto max-w-3xl space-y-4">
-        <Aviso tipo="exito" titulo="Caso de pérdida creado">
-          Ya está publicado con una ubicación aproximada (±300 m). El motor revisó los reportes de los últimos 90 días.
+        <Aviso tipo="exito" titulo="Caso publicado">
+          Ya está en línea con una ubicación aproximada (±300 m). El motor revisó los reportes de los últimos 90 días.
         </Aviso>
         {resultado.errorCruce && <Aviso tipo="alerta">No se pudieron calcular las coincidencias: {resultado.errorCruce}</Aviso>}
         <Tarjeta className="space-y-3 p-5">
@@ -117,7 +215,7 @@ export function NuevoCaso() {
             <h2 className="text-base font-bold">Coincidencias encontradas: {lista.length}</h2>
           </div>
           {lista.length === 0 ? (
-            <Vacio titulo="Aún no hay reportes parecidos">Te notificaremos cuando alguien reporte un animal que coincida.</Vacio>
+            <Vacio titulo="Aún no hay reportes parecidos">Te avisaremos en cuanto alguien reporte un animal que coincida.</Vacio>
           ) : (
             <ul className="space-y-2">
               {lista.map((x) => (
@@ -147,29 +245,193 @@ export function NuevoCaso() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <EncabezadoPagina etiqueta="Casos" titulo="Reportar mascota perdida" descripcion="Crearemos una ficha pública y buscaremos coincidencias de inmediato." />
-      {mascotas.length === 0 ? (
-        <Vacio titulo="Primero registra tu mascota">
-          <p className="mb-3">Necesitamos sus fotos y datos reservados para poder verificar al dueño.</p>
-          <BotonEnlace to="/mascotas/nueva" tamano="sm">
-            Registrar mascota
-          </BotonEnlace>
-        </Vacio>
+      <EncabezadoPagina
+        etiqueta={`Paso ${paso + 1} de 3 · ${paso === 0 ? 'Tus datos' : paso === 1 ? 'Tu mascota' : 'Dónde se perdió'}`}
+        titulo="Reportar mascota perdida"
+      />
+      <div className="mb-4 flex gap-2" aria-hidden="true">
+        {[0, 1, 2].map((n) => (
+          <span key={n} className={`h-1.5 flex-1 rounded-full ${paso >= n ? 'bg-acento' : 'bg-borde'}`} />
+        ))}
+      </div>
+
+      {paso === 0 ? (
+        <Tarjeta className="space-y-4 p-5">
+          <div className="space-y-1">
+            <EtiquetaSeccion>Tus datos</EtiquetaSeccion>
+            <p className="text-sm text-suave">
+              Para que quien encuentre a tu mascota sepa a quién avisar. Sin cuenta ni contraseña.
+            </p>
+          </div>
+          <FormularioPerfil
+            rol="PROPIETARIO"
+            pedirBarrio
+            textoBoton="Continuar"
+            onListo={({ barrio }) => {
+              setZona(barrio);
+              setPaso(1);
+            }}
+          />
+        </Tarjeta>
+      ) : paso === 1 ? (
+        <form onSubmit={continuar} className="space-y-5" noValidate>
+          {mascotas.length > 0 && (
+            <Tarjeta className="space-y-3 p-5">
+              <EtiquetaSeccion>¿Cuál se perdió?</EtiquetaSeccion>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {mascotas.map((m) => {
+                  const bloqueada = conCaso.has(m.id);
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      disabled={bloqueada}
+                      onClick={() => setMascotaId(m.id)}
+                      className={`rounded-lg border p-3 text-left text-sm disabled:opacity-50 ${
+                        mascotaId === m.id ? 'border-acento bg-acento-claro font-semibold text-acento' : 'border-borde bg-white'
+                      }`}
+                    >
+                      {m.nombre}
+                      <span className="block text-xs font-normal text-suave">
+                        {bloqueada ? 'Ya tiene un caso abierto' : [ETIQUETA_ESPECIE[m.especie], m.color_principal].join(' · ')}
+                      </span>
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={() => setMascotaId(null)}
+                  className={`rounded-lg border border-dashed p-3 text-left text-sm ${
+                    esNueva ? 'border-acento bg-acento-claro font-semibold text-acento' : 'border-borde bg-white'
+                  }`}
+                >
+                  Es otra mascota
+                  <span className="block text-xs font-normal text-suave">La registro ahora</span>
+                </button>
+              </div>
+              {errores.mascota_id && <p className="text-xs font-medium text-alerta">{errores.mascota_id}</p>}
+            </Tarjeta>
+          )}
+
+          {esNueva && (
+            <>
+              <Tarjeta className="space-y-4 p-5">
+                <EtiquetaSeccion>Datos de la mascota</EtiquetaSeccion>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Campo etiqueta="Nombre" value={nueva.nombre} onChange={(e) => cambiarMascota('nombre', e.target.value)} error={errores.nombre} />
+                  <Selector etiqueta="Especie" value={nueva.especie} onChange={(e) => cambiarMascota('especie', e.target.value)} error={errores.especie}>
+                    <option value="">Selecciona…</option>
+                    {Object.entries(ETIQUETA_ESPECIE).map(([v, t]) => (
+                      <option key={v} value={v}>
+                        {t}
+                      </option>
+                    ))}
+                  </Selector>
+                  <Campo etiqueta="Raza" opcional value={nueva.raza} onChange={(e) => cambiarMascota('raza', e.target.value)} error={errores.raza} placeholder="Ej. Mestizo" />
+                  <Selector
+                    etiqueta="Color principal"
+                    value={nueva.color_principal}
+                    onChange={(e) => cambiarMascota('color_principal', e.target.value)}
+                    error={errores.color_principal}
+                  >
+                    <option value="">Selecciona…</option>
+                    {COLORES.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </Selector>
+                  <Selector etiqueta="Tamaño" value={nueva.tamano} onChange={(e) => cambiarMascota('tamano', e.target.value)} error={errores.tamano}>
+                    <option value="">Selecciona…</option>
+                    {Object.entries(ETIQUETA_TAMANO).map(([v, t]) => (
+                      <option key={v} value={v}>
+                        {t}
+                      </option>
+                    ))}
+                  </Selector>
+                  <Selector etiqueta="Sexo" value={nueva.sexo} onChange={(e) => cambiarMascota('sexo', e.target.value)}>
+                    {Object.entries(ETIQUETA_SEXO).map(([v, t]) => (
+                      <option key={v} value={v}>
+                        {t}
+                      </option>
+                    ))}
+                  </Selector>
+                  <Campo
+                    etiqueta="Microchip"
+                    opcional
+                    inputMode="numeric"
+                    maxLength={15}
+                    value={nueva.microchip}
+                    onChange={(e) => cambiarMascota('microchip', e.target.value.replace(/\D/g, ''))}
+                    error={errores.microchip}
+                    className="font-mono"
+                  />
+                  <Selector etiqueta="Temperamento" value={nueva.temperamento} onChange={(e) => cambiarMascota('temperamento', e.target.value)}>
+                    {Object.entries(ETIQUETA_TEMPERAMENTO).map(([v, t]) => (
+                      <option key={v} value={v}>
+                        {t}
+                      </option>
+                    ))}
+                  </Selector>
+                </div>
+                <AreaTexto
+                  etiqueta="Nota de manejo"
+                  opcional={nueva.temperamento !== 'HURANA' && nueva.temperamento !== 'PUEDE_MORDER'}
+                  maxLength={300}
+                  value={nueva.nota_manejo}
+                  onChange={(e) => cambiarMascota('nota_manejo', e.target.value)}
+                  error={errores.nota_manejo}
+                  ayuda="Cómo acercarse. Si es huraña o puede morder, la ficha lo mostrará destacado."
+                />
+              </Tarjeta>
+
+              <Tarjeta className="space-y-3 p-5">
+                <EtiquetaSeccion>Fotos (1 a 6)</EtiquetaSeccion>
+                <SubirFotos urls={fotos} onCambio={setFotos} usuarioId={usuario!.id} carpeta="mascotas" maximo={6} error={errores.fotos} />
+              </Tarjeta>
+
+              <Tarjeta className="space-y-4 p-5">
+                <div className="flex items-center gap-2">
+                  <IconoCandado tamano={16} className="text-acento" />
+                  <EtiquetaSeccion>3 datos que solo tú sabes</EtiquetaSeccion>
+                </div>
+                <Aviso tipo="aviso">
+                  Sirven para comprobar que eres el dueño si alguien la encuentra. Nada que se vea en la ficha: ni color, ni raza, ni nombre.
+                </Aviso>
+                {errores.reservados && <Aviso tipo="alerta">{errores.reservados}</Aviso>}
+                {reservados.map((r, i) => (
+                  <div key={i} className="grid gap-3 rounded-lg border border-borde bg-fondo/50 p-3 sm:grid-cols-2">
+                    <Campo
+                      etiqueta={`Pregunta ${i + 1}`}
+                      value={r.pregunta}
+                      onChange={(e) => cambiarReservado(i, 'pregunta', e.target.value)}
+                      error={errores[`reservados.${i}.pregunta`]}
+                      placeholder={EJEMPLOS[i]}
+                    />
+                    <Campo
+                      etiqueta={`Respuesta ${i + 1}`}
+                      value={r.respuesta}
+                      onChange={(e) => cambiarReservado(i, 'respuesta', e.target.value)}
+                      error={errores[`reservados.${i}.respuesta`]}
+                      autoComplete="off"
+                    />
+                  </div>
+                ))}
+              </Tarjeta>
+            </>
+          )}
+
+          {errorGeneral && <Aviso tipo="alerta">{errorGeneral}</Aviso>}
+          <Boton type="submit" ancho tamano="lg">
+            Continuar
+          </Boton>
+        </form>
       ) : (
         <form onSubmit={enviar} className="space-y-5" noValidate>
           <Tarjeta className="space-y-4 p-5">
-            <Selector etiqueta="¿Qué mascota se perdió?" value={mascotaId} onChange={(e) => setMascotaId(e.target.value)} error={errores.mascota_id}>
-              <option value="">Selecciona…</option>
-              {mascotas.map((m) => (
-                <option key={m.id} value={m.id} disabled={conCaso.has(m.id)}>
-                  {m.nombre}
-                  {conCaso.has(m.id) ? ' (ya tiene un caso abierto)' : ''}
-                </option>
-              ))}
-            </Selector>
             <div className="grid gap-4 sm:grid-cols-2">
               <Campo
-                etiqueta="Fecha y hora en que se perdió"
+                etiqueta="¿Cuándo se perdió?"
                 type="datetime-local"
                 value={fecha}
                 max={ahoraMax}
@@ -190,9 +452,9 @@ export function NuevoCaso() {
           <Tarjeta className="space-y-3 p-5">
             <EtiquetaSeccion>Última ubicación conocida</EtiquetaSeccion>
             <SelectorUbicacion valor={punto} onCambio={setPunto} error={errores.punto} radioKm={radio} />
-            <p className="text-xs text-suave">El punto exacto solo lo ves tú. En la ficha pública se muestra desplazado al azar hasta 300 m.</p>
+            <p className="text-xs text-suave">El punto exacto solo lo ves tú: en público se muestra desplazado hasta 300 m.</p>
             <Campo
-              etiqueta="Barrio o zona de referencia"
+              etiqueta="Barrio o zona"
               opcional
               value={zona}
               onChange={(e) => setZona(e.target.value)}
@@ -204,22 +466,22 @@ export function NuevoCaso() {
 
           <Tarjeta className="p-5">
             <AreaTexto
-              etiqueta="Circunstancias"
+              etiqueta="¿Cómo se perdió?"
               maxLength={1000}
               value={descripcion}
               onChange={(e) => setDescripcion(e.target.value)}
               error={errores.descripcion}
-              placeholder="¿Cómo se perdió? ¿Llevaba collar? ¿Hacia dónde pudo ir?"
+              placeholder="¿Llevaba collar? ¿Hacia dónde pudo ir?"
             />
           </Tarjeta>
 
           {errorGeneral && <Aviso tipo="alerta">{errorGeneral}</Aviso>}
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <Link to="/panel" className="text-center text-sm font-medium text-suave hover:underline sm:self-center sm:px-3">
-              Cancelar
-            </Link>
+          <div className="grid grid-cols-2 gap-2">
+            <Boton variante="secundario" onClick={() => setPaso(1)} disabled={enviando}>
+              Atrás
+            </Boton>
             <Boton type="submit" cargando={enviando}>
-              Publicar caso y buscar coincidencias
+              Publicar caso
             </Boton>
           </div>
         </form>

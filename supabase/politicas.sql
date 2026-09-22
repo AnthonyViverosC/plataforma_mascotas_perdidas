@@ -19,6 +19,7 @@ alter table public.reportes           enable row level security;
 alter table public.lecturas_microchip enable row level security;
 alter table public.coincidencias      enable row level security;
 alter table public.verificaciones     enable row level security;
+alter table public.preguntas_verif    enable row level security;
 alter table public.respuestas_verif   enable row level security;
 alter table public.eventos            enable row level security;
 alter table public.notificaciones     enable row level security;
@@ -122,7 +123,7 @@ create policy reportes_editar_autor on public.reportes
 -- La anulación se hace con anular_lectura() (SECURITY DEFINER, exige justificación).
 -- ---------------------------------------------------------------------
 grant select on public.lecturas_microchip to anon, authenticated;
-grant insert (veterinario_id, codigo, mascota_id, caso_id, lat, lng, establecimiento)
+grant insert (veterinario_id, codigo, mascota_id, caso_id, lat, lng, establecimiento, leido_por)
   on public.lecturas_microchip to authenticated;
 revoke update, delete, truncate on public.lecturas_microchip from anon, authenticated;
 
@@ -157,6 +158,11 @@ grant select on public.verificaciones to authenticated;
 create policy verificaciones_leer_participantes on public.verificaciones
   for select to authenticated
   using (auth.uid() in (reclamante_id, verificador_id) or public.es_dueno_caso(caso_id));
+
+-- preguntas_verif: NADIE del cliente la lee, igual que datos_reservados.
+-- Las preguntas se obtienen con preguntas_verificacion() y las respuestas solo
+-- se comparan dentro de verificar_respuestas(), ambas SECURITY DEFINER.
+revoke all on public.preguntas_verif from anon, authenticated;
 
 -- respuestas_verif: quien verifica las ve siempre; el reclamante solo cuando se resolvió
 -- (así no puede ir descubriendo cuáles acertó entre intentos).

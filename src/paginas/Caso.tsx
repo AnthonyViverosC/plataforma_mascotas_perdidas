@@ -68,7 +68,6 @@ export function Caso() {
   const [estado, setEstado] = useState<'cargando' | 'ok' | 'noexiste'>('cargando');
   const [version, setVersion] = useState(0);
   const [mensaje, setMensaje] = useState<{ tipo: 'exito' | 'alerta' | 'info'; texto: string; enlace?: string } | null>(null);
-  const [verHistorico, setVerHistorico] = useState(false);
   const [accion, setAccion] = useState<'radio' | 'cerrar' | null>(null);
   const [nuevoRadio, setNuevoRadio] = useState(10);
   const [desenlace, setDesenlace] = useState<Desenlace | ''>('');
@@ -408,12 +407,9 @@ export function Caso() {
                   Aportar un avistamiento
                 </BotonEnlace>
               )}
-              {!usuario && (
+              {!usuario && activo && (
                 <p className="text-center text-xs text-suave">
-                  <Link to={`/entrar?volver=/caso/${caso.id}`} className="font-semibold text-acento">
-                    Elige tu perfil
-                  </Link>{' '}
-                  para reportar un avistamiento o iniciar una verificación.
+                  Para aportar un avistamiento no necesitas cuenta: te pediremos tu nombre y teléfono en el primer paso.
                 </p>
               )}
             </div>
@@ -454,8 +450,9 @@ export function Caso() {
               circulo={{ ...centroMapa, radioKm: caso.radio_km }}
               puntos={[
                 { id: 'caso', ...centroMapa, titulo: caso.mascota_nombre ?? 'Caso', detalle: exacta ? 'Punto exacto' : 'Zona aproximada', tono: 'alerta' },
+                // Las lecturas hechas en la veterinaria no guardan ubicación.
                 ...lecturas
-                  .filter((l) => !l.anulada)
+                  .filter((l): l is typeof l & { lat: number; lng: number } => !l.anulada && l.lat !== null && l.lng !== null)
                   .map((l) => ({ id: l.id, lat: l.lat, lng: l.lng, titulo: 'Lectura de microchip', detalle: l.establecimiento, tono: 'acento' as const })),
               ]}
             />
@@ -463,32 +460,30 @@ export function Caso() {
 
           {esDueno && caso.tipo === 'PERDIDA' && (
             <Tarjeta className="p-4">
-              <div id="coincidencias" className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <EtiquetaSeccion>Coincidencias sugeridas</EtiquetaSeccion>
-                  <p className="text-xs text-suave">Solo tú puedes verlas y decidir.</p>
-                </div>
-                <div className="flex rounded-lg border border-borde p-0.5 text-xs">
-                  <button type="button" onClick={() => setVerHistorico(false)} className={`rounded-md px-2.5 py-1 ${!verHistorico ? 'bg-tinta text-white' : 'text-suave'}`}>
-                    Activas ({activas.length})
-                  </button>
-                  <button type="button" onClick={() => setVerHistorico(true)} className={`rounded-md px-2.5 py-1 ${verHistorico ? 'bg-tinta text-white' : 'text-suave'}`}>
-                    Histórico ({historico.length})
-                  </button>
-                </div>
+              <div id="coincidencias" className="mb-3">
+                <EtiquetaSeccion>Coincidencias sugeridas</EtiquetaSeccion>
+                <p className="text-xs text-suave">Ordenadas de mayor a menor puntaje. Decide aquí mismo: no hay que abrir nada.</p>
               </div>
               {errorCoinc && <Aviso tipo="alerta">{errorCoinc}</Aviso>}
               {cargandoCoinc ? (
                 <Cargando />
-              ) : (verHistorico ? historico : activas).length === 0 ? (
-                <Vacio icono={<IconoRadar />} titulo={verHistorico ? 'Sin decisiones registradas' : 'No hay coincidencias activas'}>
-                  {verHistorico ? 'Aquí verás las coincidencias confirmadas y descartadas.' : 'Te avisaremos cuando un reporte coincida con tu mascota.'}
+              ) : activas.length === 0 && historico.length === 0 ? (
+                <Vacio icono={<IconoRadar />} titulo="No hay coincidencias todavía">
+                  Te avisaremos cuando un reporte coincida con tu mascota.
                 </Vacio>
               ) : (
                 <div className="space-y-3">
-                  {(verHistorico ? historico : activas).map((c) => (
+                  {activas.map((c) => (
                     <TarjetaCoincidencia key={c.id} coincidencia={c} onDecidir={activo ? (e) => onDecidir(c.id, e) : undefined} />
                   ))}
+                  {historico.length > 0 && (
+                    <div className="space-y-3 border-t border-borde pt-3">
+                      <EtiquetaSeccion>Ya decididas ({historico.length})</EtiquetaSeccion>
+                      {historico.map((c) => (
+                        <TarjetaCoincidencia key={c.id} coincidencia={c} />
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </Tarjeta>
