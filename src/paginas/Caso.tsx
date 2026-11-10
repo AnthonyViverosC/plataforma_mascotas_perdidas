@@ -1,19 +1,24 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Boton, BotonEnlace } from '../componentes/Boton';
 import { Selector } from '../componentes/Campo';
 import {
   IconoCalendario,
   IconoChip,
+  IconoCompartir,
   IconoEscudo,
   IconoFlechaIzq,
+  IconoImprimir,
   IconoMapa,
+  IconoMensaje,
   IconoOjo,
   IconoRadar,
   IconoReloj,
+  IconoRuta,
   IconoTelefono,
   IconoUsuario,
 } from '../componentes/Iconos';
+import { Jornadas } from '../componentes/Jornadas';
 import { LineaTiempo } from '../componentes/LineaTiempo';
 import { MapaPuntos } from '../componentes/Mapa';
 import { TarjetaCoincidencia } from '../componentes/TarjetaCoincidencia';
@@ -31,6 +36,7 @@ import {
 } from '../componentes/ui';
 import { useCoincidencias } from '../hooks/useCoincidencias';
 import { useSesion } from '../hooks/useSesion';
+import { enlaceWhatsApp, textoDifusion } from '../lib/compartir';
 import { ejecutarCrucesDeCaso } from '../lib/cruces';
 import { perfilesPublicos } from '../lib/eventos';
 import { enmascararChip, formatearChip, formatearFecha, idCorto, tiempoRelativo } from '../lib/formato';
@@ -81,6 +87,18 @@ export function Caso() {
     id,
     esDueno && caso?.tipo === 'PERDIDA',
   );
+
+  // Secuencia de avistamientos (solo el dueño ve las coincidencias, por RLS):
+  // los reportes no descartados, del más antiguo al más reciente.
+  const avistamientos = useMemo(
+    () =>
+      [...activas, ...historico]
+        .filter((c): c is typeof c & { reporte: NonNullable<typeof c.reporte> } => c.estado !== 'DESCARTADA' && c.reporte !== null)
+        .map((c) => c.reporte)
+        .sort((a, b) => a.ocurrido_en.localeCompare(b.ocurrido_en)),
+    [activas, historico],
+  );
+  const [copiado, setCopiado] = useState(false);
 
   const cargar = useCallback(async () => {
     if (!id) return;
@@ -212,6 +230,25 @@ export function Caso() {
     setAccion(null);
     setMensaje({ tipo: 'exito', texto: 'Caso cerrado. Seguirá siendo consultable con el mismo enlace.' });
     await refrescarTodo();
+  };
+
+  const urlFicha = id ? `${window.location.origin}/caso/${id}` : '';
+
+  /** Usa el menú de compartir del celular; en escritorio copia el texto. */
+  const compartir = async () => {
+    if (!caso) return;
+    const texto = textoDifusion(caso, urlFicha);
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: caso.mascota_nombre ?? 'Mascota', text: texto });
+        return;
+      }
+      await navigator.clipboard.writeText(texto);
+      setCopiado(true);
+      window.setTimeout(() => setCopiado(false), 2500);
+    } catch {
+      // La persona cerró el menú de compartir: no es un error.
+    }
   };
 
   if (estado === 'cargando') return <Cargando texto="Cargando ficha del caso…" />;
@@ -412,6 +449,29 @@ export function Caso() {
             </div>
           </Tarjeta>
 
+          {activo && (
+            <Tarjeta className="no-imprimir space-y-2 p-4">
+              <EtiquetaSeccion>Ayuda a difundir</EtiquetaSeccion>
+              <p className="text-xs text-suave">Cuantas más personas vean la ficha, antes aparece. El texto no incluye ningún teléfono.</p>
+              <div className="grid grid-cols-2 gap-2">
+                <a
+                  href={enlaceWhatsApp(textoDifusion(caso, urlFicha))}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-1.5 rounded-lg bg-[#25D366] px-3 py-2 text-xs font-semibold text-white transition hover:brightness-95"
+                >
+                  <IconoMensaje tamano={14} /> WhatsApp
+                </a>
+                <Boton variante="secundario" tamano="sm" icono={<IconoCompartir tamano={14} />} onClick={compartir}>
+                  {copiado ? 'Texto copiado' : 'Compartir'}
+                </Boton>
+              </div>
+              <BotonEnlace to={`/caso/${caso.id}/cartel`} variante="secundario" tamano="sm" ancho icono={<IconoImprimir tamano={14} />}>
+                Cartel para imprimir con QR
+              </BotonEnlace>
+            </Tarjeta>
+          )}
+
           {verifs.length > 0 && (
             <Tarjeta className="p-4">
               <EtiquetaSeccion className="mb-2">Pruebas de que es su mascota</EtiquetaSeccion>
@@ -451,8 +511,27 @@ export function Caso() {
                 ...lecturas
                   .filter((l): l is typeof l & { lat: number; lng: number } => !l.anulada && l.lat !== null && l.lng !== null)
                   .map((l) => ({ id: l.id, lat: l.lat, lng: l.lng, titulo: 'Lectura de microchip', detalle: l.establecimiento, tono: 'acento' as const })),
+                ...avistamientos.map((r, i) => ({
+                  id: `av-${r.id}`,
+                  lat: r.lat,
+                  lng: r.lng,
+                  numero: i + 1,
+                  titulo: `Avistamiento ${i + 1}`,
+                  detalle: formatearFecha(r.ocurrido_en),
+                  enlace: `/reporte/${r.id}`,
+                })),
               ]}
+              ruta={avistamientos.length > 0 ? [centroMapa, ...avistamientos] : undefined}
             />
+            {avistamientos.length > 0 && (
+              <p className="mt-2 flex items-start gap-1.5 text-[11px] text-suave">
+                <IconoRuta tamano={14} className="mt-px shrink-0 text-aviso" />
+                <span>
+                  La línea punteada une la zona de pérdida con {avistamientos.length === 1 ? 'el avistamiento' : `los ${avistamientos.length} avistamientos`} en orden
+                  de fecha: muestra hacia dónde se ha movido. El último es el <strong>{avistamientos.length}</strong>.
+                </span>
+              </p>
+            )}
           </Tarjeta>
 
           {esDueno && caso.tipo === 'PERDIDA' && (
@@ -484,6 +563,10 @@ export function Caso() {
                 </div>
               )}
             </Tarjeta>
+          )}
+
+          {caso.tipo === 'PERDIDA' && (
+            <Jornadas casoId={caso.id} esDueno={esDueno} activo={activo} onCambio={() => setVersion((x) => x + 1)} />
           )}
 
           {lecturas.length > 0 && (

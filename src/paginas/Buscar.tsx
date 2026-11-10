@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Boton } from "../componentes/Boton";
+import { Boton, BotonEnlace } from "../componentes/Boton";
 import { Campo, Selector } from "../componentes/Campo";
-import { IconoBuscar, IconoMapa } from "../componentes/Iconos";
+import { IconoBuscar, IconoDescargar, IconoFoto, IconoMapa } from "../componentes/Iconos";
 import { MapaPuntos, SelectorUbicacion } from "../componentes/Mapa";
 import { TarjetaCaso } from "../componentes/TarjetaCaso";
 import { TarjetaReporte } from "../componentes/TarjetaReporte";
@@ -13,6 +13,7 @@ import {
   Tarjeta,
   Vacio,
 } from "../componentes/ui";
+import { descargarCsv, ordenarPor, type Orden } from "../lib/exportar";
 import { distanciaKm, formatearDistancia, type Punto } from "../lib/geo";
 import { mensajeError, supabase } from "../lib/supabase";
 import {
@@ -60,6 +61,9 @@ export function Buscar() {
   const [reportes, setReportes] = useState<Reporte[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // HU de voluntarios: "casos de mi zona por antigüedad". Los más antiguos
+  // son los que más ayuda necesitan, porque ya nadie los está compartiendo.
+  const [orden, setOrden] = useState<Orden>("recientes");
 
   const cambiar = (campo: keyof Filtros, valor: string | number) =>
     setFiltros((f) => ({ ...f, [campo]: valor }));
@@ -141,6 +145,83 @@ export function Buscar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pestana, buscar]);
 
+  const casosOrdenados = useMemo(
+    () =>
+      ordenarPor(casos, orden, (c) => c.ocurrido_en, zona
+        ? (c) => distanciaKm(zona, { lat: c.lat_publica, lng: c.lng_publica })
+        : undefined),
+    [casos, orden, zona],
+  );
+  const reportesOrdenados = useMemo(
+    () => ordenarPor(reportes, orden, (r) => r.ocurrido_en, zona ? (r) => distanciaKm(zona, r) : undefined),
+    [reportes, orden, zona],
+  );
+
+  const exportar = () => {
+    const hoy = new Date().toISOString().slice(0, 10);
+    if (pestana === "perdidas") {
+      descargarCsv(
+        `mascotas-perdidas-${hoy}.csv`,
+        ["Ficha", "Nombre", "Especie", "Raza", "Color", "Tamaño", "Se perdió", "Zona", "Estado", "Enlace"],
+        casosOrdenados.map((c) => [
+          c.id.slice(0, 8),
+          c.mascota_nombre ?? "",
+          c.especie ? ETIQUETA_ESPECIE[c.especie] : "",
+          c.raza ?? "Mestizo",
+          c.color_principal ?? "",
+          c.tamano ? ETIQUETA_TAMANO[c.tamano] : "",
+          c.ocurrido_en.slice(0, 10),
+          c.direccion_texto ?? "",
+          c.estado,
+          `${window.location.origin}/caso/${c.id}`,
+        ]),
+      );
+    } else {
+      descargarCsv(
+        `animales-encontrados-${hoy}.csv`,
+        ["Reporte", "Especie", "Raza", "Color", "Tamaño", "Visto el", "Estado del animal", "Origen", "Enlace"],
+        reportesOrdenados.map((r) => [
+          r.id.slice(0, 8),
+          ETIQUETA_ESPECIE[r.especie],
+          r.raza ?? "",
+          r.color ?? "",
+          r.tamano ? ETIQUETA_TAMANO[r.tamano] : "",
+          r.ocurrido_en.slice(0, 10),
+          ETIQUETA_ESTADO_ANIMAL[r.estado_animal],
+          r.origen_nombre ?? "Aplicación",
+          `${window.location.origin}/reporte/${r.id}`,
+        ]),
+      );
+    }
+  };
+
+  const barraResultados = (total: number, nombre: string) => (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <p className="text-xs text-suave">
+        {total} {nombre}
+      </p>
+      <div className="flex items-center gap-2">
+        <label className="flex items-center gap-1.5 text-xs text-suave">
+          Ordenar
+          <select
+            value={orden}
+            onChange={(e) => setOrden(e.target.value as Orden)}
+            className="rounded-md border border-borde bg-white px-2 py-1 text-xs text-tinta"
+          >
+            <option value="recientes">Más recientes</option>
+            <option value="antiguos">Más antiguos primero</option>
+            <option value="cercanos" disabled={!zona}>
+              Más cerca de la zona{zona ? "" : " (elige una zona)"}
+            </option>
+          </select>
+        </label>
+        <Boton variante="fantasma" tamano="sm" icono={<IconoDescargar tamano={14} />} onClick={exportar}>
+          CSV
+        </Boton>
+      </div>
+    </div>
+  );
+
   const puntos =
     pestana === "perdidas"
       ? casos.map((c) => ({
@@ -179,14 +260,24 @@ export function Buscar() {
             </button>
           ))}
         </div>
-        <Boton
-          variante="secundario"
-          tamano="sm"
-          icono={<IconoBuscar tamano={14} />}
-          onClick={() => setVerFiltros((v) => !v)}
-        >
-          {verFiltros ? "Ocultar filtros" : "Filtrar"}
-        </Boton>
+        <div className="flex gap-2">
+          <BotonEnlace
+            to="/buscar-foto"
+            variante="secundario"
+            tamano="sm"
+            icono={<IconoFoto tamano={14} />}
+          >
+            Buscar por foto
+          </BotonEnlace>
+          <Boton
+            variante="secundario"
+            tamano="sm"
+            icono={<IconoBuscar tamano={14} />}
+            onClick={() => setVerFiltros((v) => !v)}
+          >
+            {verFiltros ? "Ocultar filtros" : "Filtrar"}
+          </Boton>
+        </div>
       </div>
 
       <div
@@ -342,11 +433,9 @@ export function Buscar() {
               </Vacio>
             ) : (
               <>
-                <p className="text-xs text-suave">
-                  {casos.length} casos encontrados
-                </p>
+                {barraResultados(casos.length, "casos encontrados")}
                 <div className="grid gap-3 sm:grid-cols-2">
-                  {casos.map((c) => (
+                  {casosOrdenados.map((c) => (
                     <TarjetaCaso
                       key={c.id}
                       caso={c}
@@ -367,11 +456,9 @@ export function Buscar() {
             />
           ) : (
             <>
-              <p className="text-xs text-suave">
-                {reportes.length} reportes encontrados
-              </p>
+              {barraResultados(reportes.length, "reportes encontrados")}
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {reportes.map((r) => (
+                {reportesOrdenados.map((r) => (
                   <TarjetaReporte
                     key={r.id}
                     reporte={r}

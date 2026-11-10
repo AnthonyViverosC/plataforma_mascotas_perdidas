@@ -22,6 +22,7 @@ const ENLACES: Enlace[] = [
   { a: "/casos/nuevo", texto: "Perdí mi mascota" },
   { a: "/reportar", texto: "Encontré una mascota" },
   { a: "/veterinario", texto: "Leer microchip", roles: ["VETERINARIO"] },
+  { a: "/importar", texto: "Importar casos", roles: ["COORDINADOR"] },
 ];
 
 /**
@@ -116,6 +117,14 @@ export function Layout() {
                   {e.texto}
                 </NavLink>
               ))}
+              {perfil && (
+                <NavLink to="/notificaciones" className={claseEnlace}>
+                  Mis avisos
+                </NavLink>
+              )}
+              <NavLink to="/ayuda" className={claseEnlace}>
+                Ayuda
+              </NavLink>
             </div>
           </nav>
         )}
@@ -142,6 +151,14 @@ export function Layout() {
             <span className="font-bold text-tinta">ChipPet</span> © 2026 · Red
             de identificación y recuperación de mascotas.
           </p>
+          <nav className="flex gap-4" aria-label="Pie de página">
+            <Link to="/estadisticas" className="font-medium hover:text-tinta">
+              Cómo va la red
+            </Link>
+            <Link to="/ayuda" className="font-medium hover:text-tinta">
+              Ayuda
+            </Link>
+          </nav>
         </div>
       </footer>
     </div>

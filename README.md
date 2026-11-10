@@ -45,6 +45,23 @@ No hay servidor propio: toda la lógica sensible vive en PostgreSQL (RLS, trigge
 22.5. **Antes de describir un hallazgo se ofrece reconocerlo.** `/reportar` abre con una galería de las mascotas que están perdidas ahora mismo: es lo primero que haría cualquiera con el animal delante. Si se reconoce una, el reporte queda ligado a su caso y se avisa directo a su dueño; si no, *No es ninguna de estas* lleva al formulario genérico y el motor lo cruzará. Quien llega con `/reportar?caso=…` desde una ficha se salta la galería.
 23. **Nadie percibe que entró a ningún sitio, sea cual sea su rol.** Por dentro sí hay una sesión anónima —sin ella RLS no dejaría insertar el reporte ni subir la foto—, pero el encabezado no muestra **nada** que la delate: ni el nombre, ni el rol, ni un botón de salir o de cambiar de perfil (`componentes/Layout.tsx`). Solo hay destinos. Primero se ocultó únicamente para el rol `CIUDADANO`, y fue un error: al reportar una pérdida la persona queda como `PROPIETARIO` y le reaparecían el nombre y el icono de salir. **Ya no queda ningún botón de cambiar de perfil en la aplicación**: para eso está `/entrar?demo=1`, que no redirige aunque haya sesión abierta. La campana del encabezado se retiró por petición expresa: los avisos siguen generándose y se consultan en `/notificaciones`, enlazado desde el menú móvil. Se descartó el reporte verdaderamente anónimo (`autor_id` nulo) porque dejaría esos reportes **fuera de la HU-03**: sin autor autenticado no hay verificador, y `coincidencias_despues_actualizar` omite crear la verificación (`funciones.sql`, guarda `v_autor is not null`).
 
+24. **Perfil `COORDINADOR` (Sprint 2 · HU07).** Es un cuarto rol-etiqueta, como los otros: no da privilegios sobre datos de nadie. Lo único que habilita es marcar reportes como importados (`reportes.origen = 'WHATSAPP'`), cosa que el trigger `reportes_antes_guardar` rechaza a cualquier otro rol. `/importar` lo pide con `RutaProtegida`, así que quien llega sin sesión escribe su nombre y su teléfono ahí mismo, igual que en el resto de la aplicación.
+25. **Los casos de WhatsApp entran como reportes, no como casos de pérdida.** Un caso de pérdida exige una mascota registrada y un dueño con sus datos reservados; un mensaje de grupo no los trae. Como reporte, el motor lo cruza con los casos de pérdida de la ciudad y con la retroactividad de siempre, que es justo lo que pide la historia («unificarlos con el resto de reportes»). Cada reporte lleva `origen_nombre` (la fundación) y la ficha muestra «Importado de WhatsApp».
+    - **Lectura del texto** (`lib/whatsapp.ts`, funciones puras con pruebas): entiende la exportación de WhatsApp (`12/9/26, 3:45 p. m. - Nombre: …` y la variante de iOS con corchetes) y también texto libre separado por líneas en blanco. Descarta los avisos del sistema, los «<Multimedia omitido>» y las respuestas de menos de 15 letras. Detecta especie, color, tamaño, sexo y estado del animal por palabras clave; **nada se publica sin que el coordinador lo revise** y complete la foto y la zona.
+    - **Celulares tapados.** Los reportes son públicos, así que antes de mostrar nada los celulares (con o sin +57), los números de 7 a 10 dígitos y los correos del mensaje se reemplazan por «[contacto omitido]».
+    - **No se duplica.** `origen_ref` guarda una huella SHA-256 del texto normalizado y la fecha del mensaje; el índice único `(autor_id, origen_ref)` y `upsert … ignoreDuplicates` hacen que volver a pegar la misma conversación omita lo ya importado, también si una tanda se interrumpe a la mitad.
+    - **Una sola zona por tanda.** El mapa se marca una vez y se aplica a todos los casos de la tanda. Si alguno está en otro sitio, se desmarca y se publica aparte.
+26. **Placa con código QR (Sprint 3 · HU11).** El propietario pide la placa desde `/mascotas/:id/placa` con los datos de envío. `solicitar_placa()` genera un código de 10 caracteres (`md5` de un UUID aleatorio) y deja el pedido en `SOLICITADA`; el QR (`qrcode.react`, corrección de errores nivel Q) apunta a `/placa/<código>` y **ya funciona desde ese momento**, antes de que llegue la placa física. El estado del pedido (`SOLICITADA → EN_PRODUCCION → ENVIADA → ENTREGADA`) solo lo cambia un `ADMIN`; no hay integración con ninguna empresa de envíos. Una mascota no puede tener dos pedidos en trámite (índice único parcial).
+    - **La página pública nunca muestra teléfonos.** `placa_publica()` devuelve foto, nombre, rasgos y el aviso de manejo; si la mascota tiene un caso de pérdida abierto, enlaza a su ficha (que ya decide qué mostrar, HU-04). Si no lo tiene, quien escanea deja nombre, celular y un mensaje con `avisar_dueno_placa()` y el dueño lo recibe como notificación. Máximo 3 avisos por hora por persona y placa.
+27. **Búsqueda por foto = semejanza visual aproximada (Sprint 3 · HU10).** `lib/semejanza.ts` reduce cada foto a una firma de color (histograma suave de 64 colores de la zona central) y de forma (cuadrícula de luz 8×8) y las compara; 70 % color y 30 % forma. Corre **en el navegador**: la foto de quien busca no se sube ni se guarda, así que no necesita sesión. **No es reconocimiento del animal**: dos perros distintos del mismo color salen muy parecidos y la misma mascota en otra pose puede salir menos. Por eso cada resultado muestra su porcentaje, se avisa de que es aproximado y la persona confirma en la ficha. Si el servidor de una foto no permite leerla desde otra página, esa foto se cuenta como «sin poder leer» y no rompe la búsqueda. Para pasar a reconocimiento real habría que sustituir `firmaDesdePixeles` por un modelo de *embeddings* de imagen; el resto de la pantalla no cambia.
+28. **Difusión sin teléfonos (mejora).** La ficha de un caso vivo tiene *Ayuda a difundir*: un enlace `wa.me` con el texto ya escrito, el menú de compartir del celular (`navigator.share`, o copiar al portapapeles en escritorio) y un **cartel imprimible** en `/caso/:id/cartel`. El texto (`lib/compartir.ts`, funciones puras) **nunca lleva teléfonos**: lleva la ficha, que ya decide qué mostrar. El cartel es tamaño carta, en blanco y negro y con letra legible a distancia, con un QR a la ficha. El teléfono del dueño solo aparece si `contacto_caso()` lo devuelve (caso vivo), y el dueño puede quitarlo antes de imprimir. Esto **no** es la historia «alertas automáticas por WhatsApp o SMS»: esa necesita un proveedor de mensajería de pago y sigue pendiente.
+29. **Recorrido de avistamientos (mejora).** El dueño ve en el mapa de la ficha sus avistamientos no descartados, numerados en orden de fecha y unidos a la zona de pérdida con una línea punteada. Solo lo ve el dueño, porque las coincidencias solo se leen con RLS de dueño. No hay consulta nueva: se reutiliza lo que ya carga `useCoincidencias`.
+30. **Jornadas de búsqueda (mejora, migración `h11`).** El dueño de un caso de pérdida vivo convoca día, hora y punto de encuentro, entre 30 minutos y 30 días desde ahora, con un máximo de 3 próximas. Quien quiera ayudar pulsa *Voy a ayudar* y deja nombre y celular, igual que al reportar (decisión 22.4). Las tablas `jornadas_busqueda` y `jornada_asistentes` **no tienen privilegios para ningún rol del cliente**: se leen con `jornadas_caso()`, que devuelve el conteo y no los asistentes, y se escriben con `convocar_jornada()`, `cancelar_jornada()`, `apuntarse_jornada()` y `salir_jornada()`. Al convocar se avisa a quienes ya reportaron un avistamiento de esa mascota, y cada convocatoria o cancelación queda en el historial como evento `JORNADA`. El punto de encuentro es texto público: el formulario advierte que no sea la casa.
+31. **Ficha quieta (mejora, migración `h12`).** `avisar_fichas_quietas()` notifica al dueño de cada caso vivo que lleva 3 días o más sin actividad, como máximo un aviso cada 3 días por caso. Se programa con `pg_cron` a las 9:00 de Bogotá si la extensión está activa; si no, la migración crea la función y avisa con un `notice`. El cliente no puede ejecutarla. Además, el panel muestra el mismo aviso con accesos directos a WhatsApp, al cartel y a ampliar el radio.
+32. **`/buscar` ordena y exporta.** Se puede ordenar por *Más recientes*, *Más antiguos primero* (lo que pide la historia del voluntario: los casos viejos son los que nadie está mirando) o *Más cerca de la zona*, que solo se activa si se eligió zona. Los resultados se descargan en CSV separado por `;`, con BOM para que Excel en español respete las tildes y con las celdas que empiezan por `= + - @` neutralizadas para evitar la inyección de fórmulas.
+33. **Indicadores y ayuda públicos.** `/estadisticas` (*Cómo va la red*) calcula casos activos, reencuentros, tasa de reencuentro, mediana aproximada de días hasta el reencuentro, avisos de los últimos 30 días y pérdidas por semana. Todo sale de `casos_publicos` y de un conteo de `reportes`, nada personal. `/ayuda` reúne preguntas frecuentes con buscador. Las dos páginas se enlazan desde el pie y el menú móvil, no desde la portada, para no romper la decisión 21.
+34. **Pruebas del SQL sin Supabase.** `tests/sql/` levanta un Postgres real en memoria (PGlite) con lo mínimo de Supabase: roles `anon` y `authenticated`, `auth.uid()` y `storage`. Ahí carga `schema.sql`, `funciones.sql` y `politicas.sql` tal cual y ejecuta las consultas con los roles del cliente. Así las garantías de privacidad (decisiones 4, 5, 6, 10, 12 y 22) y las RPC nuevas se comprueban en cada `npm run test`, sin depender de un proyecto en línea. No sustituye la prueba final sobre Supabase: PGlite no trae `pg_cron` ni Realtime.
+
 ---
 
 ## 2. Requisitos
@@ -78,10 +95,18 @@ No hay servidor propio: toda la lógica sensible vive en PostgreSQL (RLS, trigge
 > | 3 | `h4_fixture_preguntas_del_verificador.sql` | Caso K5 y verificación pendiente para demostrar en vivo la rama nueva de HU-03 |
 > | 4 | `h5_cambiar_rol.sql` | `cambiar_rol()`: cambiar de perfil sin perder la sesión, para que nadie quede atrapado con el rol equivocado |
 > | 5 | `h6_contacto_reporte.sql` | `contacto_reporte()`: el dueño ve a quién llamar de entre quienes avistaron a su mascota |
+> | 6 | `h7_contacto_caso.sql` | `contacto_caso()`: el teléfono del dueño de un caso vivo, caso por caso |
+> | 7 | `h8_rol_coordinador.sql` | **Sprint 2 · HU07.** Nuevo valor `COORDINADOR` del enum `rol_usuario`. Va solo: un valor de enum no se puede usar en la transacción que lo crea |
+> | 8 | `h9_importar_whatsapp.sql` | **Sprint 2 · HU07.** `reportes.origen`, `origen_nombre` y `origen_ref` (con índice único para no importar dos veces); `COORDINADOR` en `cambiar_rol()` y en el alta de perfiles; el trigger de reportes solo deja importar al coordinador |
+> | 9 | `h10_placas_qr.sql` | **Sprint 3 · HU11.** Tablas `placas_qr` y `avisos_placa`, con `solicitar_placa()`, `cancelar_placa()`, `placa_publica()` y `avisar_dueno_placa()` |
+> | 10 | `h11_jornadas_busqueda.sql` | **Mejora.** Jornadas de búsqueda: tablas, RPC y el tipo de evento `JORNADA` (decisión 30) |
+> | 11 | `h12_aviso_ficha_quieta.sql` | **Mejora.** `avisar_fichas_quietas()` y su tarea diaria en `pg_cron`, si está activo (decisión 31) |
 >
 > Se aplican con **`npm run db:migrar -- <archivo>`** (o `-- --revisar` para ver el estado sin tocar nada). No uses `db:aplicar`: ese solo sirve para bases limpias.
 >
-> **Estado: las cinco ya están aplicadas** en el proyecto de Supabase que apunta este repo (18/09/2026). La tabla sigue aquí para instalaciones nuevas o para otro entorno. No vuelvas a ejecutar la 1 ni la 2 sobre esta base: sus líneas `add constraint` no son idempotentes y el segundo pase aborta (la transacción revierte sola, pero no tiene sentido). De la 3 a la 5 sí son idempotentes.
+> ⚠️ **10/11/2026: el proyecto de Supabase al que apunta `.env` no responde.** Su dominio (`aitrobhpzlrkbmgnjcdu.supabase.co`) no resuelve en DNS, ni con el DNS local ni con 8.8.8.8. Lo normal es que esté **pausado por inactividad** (el plan gratuito pausa los proyectos sin uso) o que se haya borrado. Restáuralo en el panel de Supabase (*Restore project*), o crea uno nuevo, y aplica lo pendiente. Mientras tanto la aplicación compila y sus pruebas pasan, pero no carga datos.
+>
+> **Estado: de la 1 a la 6 ya están aplicadas** en el proyecto de Supabase que apunta este repo (18/09/2026). **De la 7 a la 11 (`h8` a `h12`) están pendientes**: aplícalas en ese orden con `npm run db:migrar -- supabase/migraciones/h8_rol_coordinador.sql` y las siguientes, una por una (`h8` primero y sola). Todas ya están incorporadas en `schema.sql`, `funciones.sql` y `politicas.sql` para instalaciones limpias. La tabla sigue aquí para instalaciones nuevas o para otro entorno. No vuelvas a ejecutar la 1 ni la 2 sobre esta base: sus líneas `add constraint` no son idempotentes y el segundo pase aborta (la transacción revierte sola, pero no tiene sentido). De la 3 a la 5 sí son idempotentes.
 
 ## 4. Variables de entorno
 
@@ -205,11 +230,65 @@ No hace falta escribir credenciales. Los perfiles de demostración **ya no se mu
 4. Como **propietario**, en el caso de Max pulsa **Ampliar radio** y elige 10 km. El historial registra *Radio de búsqueda ampliado de 5 km a 10 km* y el motor se vuelve a ejecutar.
 5. Pulsa **Cerrar caso**, elige *Reencontrada* y confirma. El caso queda **Cerrado**, el historial registra *Cierre del caso* y la misma URL sigue abriendo la ficha (criterios 1 y 8).
 
+### Sprint 2 · HU07 · Importar los casos de un grupo de WhatsApp
+
+1. Abre **`/importar`** sin sesión: pide *Tu nombre y fundación* y un celular (no un login). Continúa.
+2. En *Fundación o grupo* escribe `Fundación Patas` y pega una conversación como esta:
+   ```
+   12/9/26, 3:50 p. m. - Marta: Rescatamos un perrito macho, pequeño, color café, por el barrio Las Cuadras. Escribir al 3001234567
+   12/9/26, 3:51 p. m. - Marta: <Multimedia omitido>
+   13/9/26, 9:10 a. m. - Luis: Gatita atigrada hembra perdida cerca del parque Bolívar, la vieron herida ayer.
+   ```
+   (o sube el `.txt` exportado). Pulsa **Analizar mensajes**.
+3. Aparecen **2 casos detectados** y un aviso de que se dejó fuera 1 mensaje (el multimedia). El primero ya trae *Perro · Marrón · Pequeño · Macho · Lo recogí*, y el texto dice `[contacto omitido]` donde estaba el celular.
+4. Pulsa **Publicar** sin más: pide marcar la zona. Márcala en el mapa y vuelve a pulsar: cada caso pide su foto y **no se publica nada** hasta que todos estén completos.
+5. Sube una foto a cada caso y publica. El resumen dice *2 casos publicados*. Abre **Buscar → Animales encontrados**: aparecen con la insignia *Vía Fundación Patas*, y su ficha dice *Importado de WhatsApp*.
+6. Pega **la misma conversación** otra vez y publica: *Ya estaban importados y se omitieron: 2*.
+7. Como ciudadano, intenta insertar un reporte con `origen = 'WHATSAPP'` (prueba T-18): lo rechaza.
+
+### Sprint 3 · HU10 · Casos parecidos a partir de una foto
+
+1. En **Buscar** pulsa *Buscar por foto* (o abre `/buscar-foto`). No pide datos ni sesión.
+2. Elige una foto de un animal y pulsa **Buscar parecidos**. Mientras compara se ve el avance (*12/40*).
+3. Salen los casos de pérdida abiertos ordenados de mayor a menor, cada uno con su **% de semejanza** y la etiqueta *Muy parecida* (≥ 75) · *Parecida* (≥ 55) · *Poco parecida*. Se muestran 8 y el botón *Ver los N restantes* despliega el resto.
+4. El aviso *«Es una comparación aproximada»* recuerda que se compara color y luz, no al animal. Pulsa un resultado: abre la ficha del caso.
+5. Con la pestaña *Red* de DevTools se comprueba que **la foto no se envía a ningún servidor**.
+
+### Sprint 3 · HU11 · Placa con código QR
+
+1. Como **propietario**, en el panel pulsa *Placa QR* en la tarjeta de una mascota.
+2. Deja la dirección vacía y pulsa **Solicitar placa**: pide dirección y ciudad. Complétalos y envía. Aparece el pedido en *Solicitada*, el seguimiento de cuatro pasos y el **código QR**.
+3. Pulsa *Imprimir* o *Descargar SVG*. Escanea el QR con el celular: abre `/placa/<código>`.
+4. **Sin sesión**, en esa página se ve la foto, el nombre y los rasgos de la mascota, y **ningún teléfono**. Si la mascota tiene un caso abierto, ofrece *Ver ficha y contactar* y *La tengo conmigo / la vi*.
+5. Con una mascota **sin** caso abierto, la página pide nombre y celular a quien escanea, luego un mensaje, y *Avisar al dueño*. El dueño ve la notificación *«Escanearon la placa de …»* con ese contacto en `/notificaciones`. A la cuarta vez en una hora responde *«Ya avisaste varias veces…»*.
+6. De vuelta como propietario: *Cancelar pedido* funciona mientras esté en *Solicitada* (prueba T-20).
+
+### Mejoras · difusión, recorrido, jornadas y ficha quieta
+
+1. Entra como **propietario** (`/entrar?demo=1`) y abre **Max**. En el mapa aparecen los avistamientos **numerados** y unidos a la zona de pérdida por una línea punteada, del más antiguo al más reciente (decisión 29).
+2. En *Ayuda a difundir*, pulsa **WhatsApp**: se abre con el texto escrito, sin teléfonos. Pulsa **Cartel para imprimir con QR**: se ve en blanco y negro, con una casilla para quitar el teléfono; *Imprimir cartel* genera una hoja carta. Escanea el QR con el celular: abre la ficha.
+3. En *Jornadas de búsqueda*, pulsa **Convocar** y elige una hora dentro de 10 minutos: *«…al menos 30 minutos después de ahora.»* Con una hora válida, la jornada se publica, aparece en *Todo lo que ha pasado* como **Jornada de búsqueda** y el ciudadano del seed (autor de R1) recibe *«Jornada para buscar a Max»*.
+4. Abre la ficha en una ventana privada, pulsa **Voy a ayudar** y deja nombre y celular: el conteo sube a 1 y el dueño recibe *«Alguien se sumó a la búsqueda»*. Vuelve como dueño y pulsa **Cancelar jornada**: pide confirmación y avisa a quien se apuntó.
+5. En el SQL Editor: `update casos set ultima_actividad_en = now() - interval '5 days' where id = 'c0000000-0000-0000-0000-000000000003'; select avisar_fichas_quietas();` → devuelve 1, y Laura ve *«La ficha de Rocky está quieta»*. Al repetir la llamada devuelve 0. En `/panel` aparece el aviso con los accesos directos.
+6. `/buscar` → *Ordenar: Más antiguos primero*, y luego **CSV**: se descarga un archivo que Excel abre con las tildes correctas. `/estadisticas` y `/ayuda` se abren desde el pie de página.
+
+### Sprint 2 y 3 · lo que ya existía
+
+| Historia | Dónde se ve |
+|---|---|
+| **HU05 · Identificar desde el celular, sin instalar nada** | Todo es web responsive (`viewport`, Tailwind) y sin cuenta. Abre `/` desde el celular: *Encontré una mascota* lleva a `/reportar`, que arranca por la galería de reconocimiento |
+| **HU06 · Radio de difusión en km** | `/casos/nuevo` ofrece 1, 2, 3, 5, 10 y 20 km; en la ficha, *Ampliar radio* ofrece hasta 50 km y registra *Radio de búsqueda ampliado de X km a Y km* en el historial. El radio alimenta el puntaje de distancia del motor |
+| **HU08 · Reportar un animal visto en la calle** | `/reportar`: el estado del animal incluye *Sigue en el lugar* y *Se fue*, y *No es ninguna de estas* permite reportar sin saber si está perdido |
+| **HU09 · Hallazgos anteriores al reporte** | Cruce retroactivo con ventana de 90 días y la etiqueta **Retroactiva** (T-03) |
+| **HU12 · Varias fotos de la mascota** | `/mascotas/nueva` admite de 1 a 6 fotos, con una principal; el trigger `limitar_fotos_mascota` lo garantiza en la base |
+
 ---
 
 ## 8. Pruebas
 
 ### Automatizadas: `npm run test`
+
+**75 pruebas en 10 archivos, todas en verde** (10/11/2026). Las de `tests/sql/` usan PGlite y tardan unos segundos (decisión 34). Lo que **no** cubren: `pg_cron`, Realtime, Storage y la interfaz en el navegador. Eso se comprueba con el guion de la sección 7, sobre un proyecto de Supabase en línea.
 
 | ID | Caso | Esperado | Resultado |
 |---|---|---|---|
@@ -218,6 +297,15 @@ No hace falta escribir credenciales. Los perfiles de demostración **ya no se mu
 | T-03 | Hallazgo 30 días antes de la pérdida | Coincidencia marcada como retroactiva | ✅ |
 | T-04 | Puntaje 34 | No se crea la coincidencia | ✅ |
 | T-05 | Microchip idéntico | Puntaje 100 | ✅ |
+| W-01…W-15 | `tests/whatsapp.test.ts`: lectura de la exportación (Android e iOS), texto libre, descarte de avisos y multimedia, detección de rasgos, celulares y correos tapados, huella estable | Se descartan 4 de 6 mensajes de la muestra y ninguno de los publicados conserva un celular | ✅ |
+| D-01…D-09 | `tests/compartir.test.ts`: rasgos y texto de difusión sin teléfonos, aviso de mascota huraña, enlace `wa.me` codificado, días sin actividad, `casoQuieto`, `tiempoHasta`, validación de jornadas | Texto correcto y fechas límite | ✅ |
+| O-01…O-04, E-01…E-03 | `tests/exportar.test.ts`: los tres órdenes de `/buscar`, que no mutan la lista, y el CSV (escape, `;` y CRLF, fórmulas neutralizadas) | Orden y CSV correctos | ✅ |
+| ES-01…ES-04 | `tests/estadisticas.test.ts`: mediana, reencuentros por `RESUELTO` o desenlace, tasa nula sin casos terminados, agrupación por semana | Indicadores correctos | ✅ |
+| SQ-01…SQ-08 | `tests/sql/seguridad.test.ts` (Postgres real, roles del cliente): `casos.lat` cerrado a `anon` y `authenticated`, desplazamiento de 100 a 300 m, `ubicacion_exacta_caso` solo para la creadora, perfil público sin teléfono, nadie llega a `ADMIN`, un ciudadano no crea pérdidas (RLS), historial inmutable incluso para el superusuario, teléfono del dueño solo con el caso vivo | Cada garantía se cumple | ✅ |
+| J-01…J-09 | `tests/sql/jornadas.test.ts`: permisos, límites de fecha, evento y avisos, lectura anónima sin acceso a la tabla, inscripción única, cancelación con aviso, máximo 3, caso cerrado | Reglas de la decisión 30 | ✅ |
+| FQ-01…FQ-05 | `tests/sql/fichaQuieta.test.ts`: solo casos quietos y vivos, sin repetir, cliente sin permiso, migración idempotente | Reglas de la decisión 31 | ✅ |
+| IN-01 | `tests/sql/instalacion.test.ts`: los tres SQL base cargan en limpio y `h11` y `h12` se reaplican encima | Sin errores | ✅ |
+| S-01…S-10 | `tests/semejanza.test.ts`: una foto contra sí misma da 100, la misma escena con ruido da ≥ 90, un animal oscuro se parece más a otro oscuro que a uno dorado, el orden de resultados y el límite de tareas en paralelo | Ordena de mayor a menor semejanza | ✅ |
 
 ### Manuales
 
@@ -244,6 +332,10 @@ rollback;
 | T-12 | Abre `/caso/c0000000-0000-0000-0000-000000000001` sin sesión | La ficha se ve, sin teléfono ni ubicación exacta. Además, `select lat from casos` como `anon` da *permission denied* |
 | T-13 | HU-02 paso 3: descartar y luego *Recalcular coincidencias* | La coincidencia no vuelve a aparecer |
 | T-14 | En `/casos/nuevo`, Max aparece deshabilitado *(ya tiene un caso abierto)*. Por SQL, como propietario: `insert into casos (mascota_id, creador_id, tipo, lat, lng, ocurrido_en) values ('a0000000-0000-0000-0000-000000000001','11111111-1111-1111-1111-111111111111','PERDIDA',1.2,-77.2, now());` | Rechazo por `casos_una_perdida_abierta_idx`. En la app: *“Esta mascota ya tiene un caso de pérdida abierto.”* |
+| T-18 | Como ciudadano: `insert into reportes (autor_id, especie, estado_animal, lat, lng, ocurrido_en, foto_url, origen, origen_nombre, origen_ref) values ('2222…','PERRO','SIGUE_EN_LUGAR',1.2,-77.2,now(),'https://x.co/a.jpg','WHATSAPP','Grupo X','abcdef1234567890');` | *«Solo un coordinador de fundación puede importar casos de WhatsApp.»* Como coordinador entra; repetir el mismo `origen_ref` con `on conflict (autor_id, origen_ref) do nothing` no inserta nada |
+| T-19 | Como `anon`: `select * from placas_qr;` y `select * from placa_publica('<código>');` | *permission denied* en la tabla; la función devuelve foto, nombre y rasgos **sin** teléfono |
+| T-20 | Como propietario: `select solicitar_placa('<mascota>','Laura','Calle 18 # 20-30','Pasto','3001112222');` dos veces; luego `cancelar_placa('<id>')` | La segunda da *«Esta mascota ya tiene una placa en trámite…»*. Un ciudadano recibe *«Solo el propietario puede solicitar la placa…»*. Cancelar deja el pedido en `CANCELADA` y permite pedir otra |
+| T-21 | Como ciudadano: `select avisar_dueno_placa('<código>','Está en el parque');` cuatro veces seguidas | Las tres primeras notifican al dueño; la cuarta: *«Ya avisaste varias veces en la última hora…»* |
 | T-15 | Sube una foto de 8 MB en *Registrar mascota* | *“"foto.jpg" pesa 8 MB. El máximo permitido es 5 MB.”* El bucket también limita a 5 MB |
 
 ---
@@ -253,15 +345,21 @@ rollback;
 ```
 src/
   componentes/   Boton, Campo, Mapa, SubirFotos, LineaTiempo, TarjetaCoincidencia, Campana,
-                 TarjetaCaso, Layout, RutaProtegida, ProveedorSesion, FormularioPerfil, Iconos, ui
+                 TarjetaCaso, Layout, RutaProtegida, ProveedorSesion, FormularioPerfil, Iconos, ui,
+                 CodigoQR, Jornadas
   paginas/       Inicio, Entrar, Panel, MascotaFormulario, NuevoCaso, Caso, Reportar,
-                 Buscar, Verificacion, Veterinario, Notificaciones, NoEncontrada
-  lib/           supabase, matching, geo, validacion, eventos, notificaciones, cruces, fotos, formato
+                 Buscar, Verificacion, Veterinario, Notificaciones, NoEncontrada,
+                 ImportarCasos, PlacaMascota, PlacaPublica, BuscarPorFoto,
+                 Cartel, Estadisticas, Ayuda
+  lib/           supabase, matching, geo, validacion, eventos, notificaciones, cruces, fotos, formato,
+                 whatsapp, semejanza, compartir, exportar, estadisticas
   hooks/         useSesion, useMisCasos, useCoincidencias, useNotificaciones (+ sesionContexto)
   tipos/         tipos.ts
 supabase/        schema.sql, funciones.sql, politicas.sql, seed.sql
-                 migraciones/  h1_lectura_microchip.sql, h3_preguntas_del_verificador.sql
-tests/           matching.test.ts
+                 migraciones/  h1 … h12 (ver sección 3)
+tests/           matching, whatsapp, semejanza, compartir, exportar, estadisticas (.test.ts)
+  sql/           baseDePrueba.ts (PGlite + stub de Supabase), seguridad, jornadas,
+                 fichaQuieta, instalacion (.test.ts), con su propio tsconfig.sql.json
 ```
 
 ---
@@ -280,12 +378,20 @@ tests/           matching.test.ts
 | **HU-02 · Confirmar o descartar** | `componentes/TarjetaCoincidencia.tsx` (acciones dentro de la tarjeta, sin pantalla de detalle), `hooks/useCoincidencias.ts` (orden por puntaje descendente), `paginas/Caso.tsx` (lista única: activas y luego *Ya decididas*) · `funciones.sql` (`coincidencias_antes_actualizar`, `coincidencias_despues_actualizar`) · `politicas.sql` (`coincidencias_*`) | Guion HU-02 · T-13 |
 | **HU-03 · Verificación de propiedad** | `paginas/Verificacion.tsx` (una pantalla por actor), `lib/validacion.ts` (`preguntasVerificacionSchema`) · `schema.sql` (`preguntas_verif`, `respuestas_verif_una_fuente`) · `funciones.sql` (`crear_preguntas_verificacion`, `verificar_respuestas`, `preguntas_verificacion`, `resolver_verificacion`, `iniciar_verificacion`, `contactos_verificacion`) · `politicas.sql` (`verificaciones_*`, `respuestas_leer`, `reservados_solo_dueno`, sin privilegios sobre `preguntas_verif`) · `migraciones/h3_preguntas_del_verificador.sql` | Guion HU-03 · T-06 · T-10 · T-17 |
 | **HU-04 · Ficha única con historial** | `paginas/Caso.tsx`, `componentes/LineaTiempo.tsx`, `componentes/Mapa.tsx`, `lib/eventos.ts` · `schema.sql` (`casos_publicos`) · `funciones.sql` (`eventos_inmutables`, `casos_despues_actualizar`) · `politicas.sql` (eventos) | Guion HU-04 · T-11 · T-12 |
+| **HU07 · Importar casos de WhatsApp** (Sprint 2) | `paginas/ImportarCasos.tsx`, `lib/whatsapp.ts`, `lib/validacion.ts` (`origenImportacionSchema`), `componentes/RutaProtegida.tsx` y `FormularioPerfil.tsx` (rol `COORDINADOR`), `TarjetaReporte.tsx` y `paginas/Reporte.tsx` (insignia de origen) · `schema.sql` (`reportes.origen*`) · `funciones.sql` (`reportes_antes_guardar`, `cambiar_rol`) · `migraciones/h8` y `h9` | Guion HU07 · W-01…W-15 · T-18 |
+| **HU10 · Casos parecidos por foto** (Sprint 3) | `paginas/BuscarPorFoto.tsx`, `lib/semejanza.ts`, `componentes/TarjetaCaso.tsx` | Guion HU10 · S-01…S-10 |
+| **HU11 · Placa con código QR** (Sprint 3) | `paginas/PlacaMascota.tsx`, `paginas/PlacaPublica.tsx`, `componentes/CodigoQR.tsx`, `lib/validacion.ts` (`placaSchema`, `avisoPlacaSchema`) · `schema.sql` (`placas_qr`, `avisos_placa`) · `funciones.sql` (`solicitar_placa`, `cancelar_placa`, `placa_publica`, `avisar_dueno_placa`) · `politicas.sql` · `migraciones/h10` | Guion HU11 · T-19, T-20, T-21 |
+| **Mejora · Recorrido de avistamientos** | `paginas/Caso.tsx` (`avistamientos`), `componentes/Mapa.tsx` (`ruta`, marcadores numerados) | Guion *Mejoras*, paso 1 |
+| **Mejora · Difusión y cartel con QR** | `lib/compartir.ts`, `paginas/Caso.tsx` (*Ayuda a difundir*), `paginas/Cartel.tsx` | Guion *Mejoras*, paso 2 · D-01…D-05 |
+| **Mejora · Jornadas de búsqueda** | `componentes/Jornadas.tsx`, `lib/validacion.ts` (`jornadaSchema`), `lib/eventos.ts` y `LineaTiempo.tsx` (evento `JORNADA`) · `schema.sql`, `funciones.sql`, `politicas.sql` · `migraciones/h11` | Guion *Mejoras*, pasos 3 y 4 · J-01…J-09 · D-09 |
+| **Mejora · Ficha quieta** | `paginas/Panel.tsx`, `lib/compartir.ts` (`casoQuieto`) · `funciones.sql` (`avisar_fichas_quietas`) · `migraciones/h12` | Guion *Mejoras*, paso 5 · FQ-01…FQ-05 · D-06, D-07 |
+| **Mejora · Orden, CSV, indicadores y ayuda** | `paginas/Buscar.tsx`, `lib/exportar.ts`, `paginas/Estadisticas.tsx`, `lib/estadisticas.ts`, `paginas/Ayuda.tsx`, `componentes/Layout.tsx` (pie y menú móvil) | Guion *Mejoras*, paso 6 · O-01…E-03 · ES-01…ES-04 |
 
 ---
 
 ## 11. Estado del backlog
 
-Las 23 historias priorizadas, contrastadas contra lo que existe hoy. **13 hechas, 3 parciales, 7 sin empezar.** Las tres de puntaje 100 están completas.
+Las 23 historias priorizadas, contrastadas contra lo que existe hoy. **18 hechas (una de ellas aproximada), 2 parciales y 3 sin empezar** (actualizado el 10/11/2026). Antes eran 16, 2 y 5, aunque esa cuenta no cuadraba con la tabla. Las tres de puntaje 100 están completas. Los Sprints 2 y 3 (HU05 a HU12 de los documentos del equipo) quedan completos.
 
 | Puntaje | Historia | Estado | Dónde |
 |---|---|---|---|
@@ -297,27 +403,27 @@ Las 23 historias priorizadas, contrastadas contra lo que existe hoy. **13 hechas
 | 63 | Propietario · radio de difusión en km | ✅ | `casos.radio_km`, elegible al publicar y ampliable después; alimenta el motor |
 | 49 | Ciudadano · reportar un animal aunque no sepa si está perdido | ✅ | `estado_animal` cubre *sigue en el lugar* y *se fue*; la galería ofrece explícitamente *No es ninguna de estas* |
 | 49 | Propietario · revisar hallazgos anteriores a mi reporte | ✅ | Cruce retroactivo, ventana de 90 días, etiqueta **Retroactiva** · prueba T-03 |
-| 49 | Ciudadano · subir foto y ver casos parecidos por semejanza | ⚠️ Parcial | Al publicar se devuelven los casos ordenados por puntaje, pero **la semejanza no se calcula sobre la foto**: se compara especie, raza, color, tamaño, sexo, distancia y tiempo. No hay reconocimiento de imagen |
-| 49 | Coordinador de fundación · subir casos de WhatsApp | ❌ | No hay importación masiva. Además introduce un actor que no existe en el modelo de roles |
-| 36 | Propietario · placa con código QR | ❌ | |
+| 49 | Ciudadano · subir foto y ver casos parecidos por semejanza | ✅ Aproximada | HU10. `/buscar-foto` compara la foto con las de los casos abiertos y los ordena por % de semejanza (color y forma general, en el navegador). **No reconoce al animal**: ver la decisión 27 |
+| 49 | Coordinador de fundación · subir casos de WhatsApp | ✅ | HU07. Rol `COORDINADOR` y `/importar`: lee el chat, tapa los celulares, el coordinador revisa y publica. Entran como reportes (decisión 25) |
+| 36 | Propietario · placa con código QR | ✅ | HU11. Pedido con datos de envío, QR imprimible y página pública sin teléfonos. **Falta** la integración con quien fabrica y envía la placa: el estado lo cambia un administrador a mano |
 | 36 | Propietario · varias fotos desde distintos ángulos | ✅ | De 1 a 6 fotos por mascota |
-| 36 | Ciudadano · alertas por WhatsApp o SMS | ❌ | Las notificaciones son solo dentro de la aplicación |
-| 35 | Propietario · mapa con la secuencia de avistamientos | ⚠️ Parcial | El mapa de la ficha muestra la zona del caso y las lecturas de microchip, pero **no traza los avistamientos** como recorrido |
+| 36 | Ciudadano · alertas por WhatsApp o SMS | ⚠️ Parcial | La ficha se comparte por WhatsApp con un clic (decisión 28), pero **no hay envío automático**: requiere un proveedor de mensajería de pago (la API de WhatsApp Business o un servicio de SMS) |
+| 35 | Propietario · mapa con la secuencia de avistamientos | ✅ | Avistamientos numerados y unidos por fecha en el mapa de la ficha (decisión 29) |
 | 30 | Propietario de gato · indicar que es huraño | ✅ | `temperamento` + aviso destacado *«no intente atraparla»* en la ficha pública |
 | 24 | Propietario · pegar el enlace de una publicación de redes | ❌ | |
-| 24 | Voluntario · casos de mi zona por antigüedad | ⚠️ Parcial | `/buscar` filtra por zona y radio, pero ordena por **más reciente**, no por más antiguo. Tampoco existe el rol Voluntario |
-| 24 | Propietario · convocar una jornada de búsqueda | ❌ | |
+| 24 | Voluntario · casos de mi zona por antigüedad | ✅ | `/buscar`: zona + *Más antiguos primero* (decisión 32). No hace falta un rol Voluntario: cualquiera puede buscar |
+| 24 | Propietario · convocar una jornada de búsqueda | ✅ | Ficha del caso → *Jornadas de búsqueda* (decisión 30, `h11`) |
 | 24 | Ciudadano · registrar un avistamiento aunque el animal ya se fue | ✅ | `estado_animal = SE_FUE`. Ojo: la tabla lo marca **Alta** con puntaje 24, incoherencia a revisar |
-| 20 | Propietario · aviso si la ficha lleva días sin moverse | ❌ | El dato existe (`casos.ultima_actividad_en`), falta la tarea programada que lo revise |
+| 20 | Propietario · aviso si la ficha lleva días sin moverse | ✅ | `avisar_fichas_quietas()` con `pg_cron`, y aviso en el panel (decisión 31, `h12`). Para que sea automático hay que activar `pg_cron` en Supabase |
 | 20 | Ciudadano · ofrecer acogida temporal | ❌ | |
-| 9 | Propietario · cartel con QR y alto contraste | ❌ | |
+| 9 | Propietario · cartel con QR y alto contraste | ✅ | `/caso/:id/cartel` (decisión 28) |
 | 6 | Propietario · recordatorio periódico de revisión | ❌ | |
 
-**Lo más rentable de lo que falta**, por relación valor/esfuerzo:
+**Lo que falta**, por relación valor/esfuerzo:
 
-1. **Ordenar por antigüedad en `/buscar`** (puntaje 24, parcial): es cambiar el sentido de un `order by` y añadir un selector. Cierra una historia entera.
-2. **Trazar los avistamientos en el mapa de la ficha** (35, parcial): los datos ya están en `reportes` y el mapa ya existe; es pintar puntos que hoy no se pintan.
-3. **Aviso por ficha inactiva** (20): `ultima_actividad_en` ya se mantiene al día; falta un cron que notifique.
+1. **Alertas automáticas por WhatsApp o SMS** (36): es la de más puntaje, pero necesita un proveedor de pago y una función de servidor (Supabase Edge Function) que lea `notificaciones` y envíe. Los avisos ya se generan en la base, así que la integración solo añade un canal de salida.
+2. **Que el motor aprenda de los descartes** (HU-02, 100, ⚠️): con lo descartado se podrían ajustar los pesos de cada criterio.
+3. **Acogida temporal** (20): seguiría el mismo patrón que las jornadas (tabla sin privilegios, RPC y una tarjeta en la ficha del hallazgo).
+4. **Pegar el enlace de una publicación de redes** (24) y **recordatorio periódico** (6): poco valor frente al resto.
 
-Las demás (QR, WhatsApp/SMS, importar de redes, jornadas, acogida) piden integraciones o pantallas nuevas y ninguna supera 36 puntos.
-
+Además, `supabase/todo.sql` es una concatenación antigua de los cuatro archivos y **no** incluye `COORDINADOR` ni las migraciones `h8` a `h12`. No lo uses: instala con `npm run db:aplicar` o con los archivos por separado.

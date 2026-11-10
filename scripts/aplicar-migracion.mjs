@@ -43,7 +43,15 @@ select
   exists (select 1 from pg_proc where proname='crear_preguntas_verificacion')                                 as h3_crear_preguntas,
   exists (select 1 from public.casos where id='c0000000-0000-0000-0000-000000000005')                         as h4_fixture_demo,
   exists (select 1 from pg_proc where proname='cambiar_rol')                                                  as h5_cambiar_rol,
-  exists (select 1 from pg_proc where proname='contacto_reporte')                                             as h6_contacto_reporte;
+  exists (select 1 from pg_proc where proname='contacto_reporte')                                             as h6_contacto_reporte,
+  exists (select 1 from pg_proc where proname='contacto_caso')                                                as h7_contacto_caso,
+  exists (select 1 from pg_enum e join pg_type t on t.oid = e.enumtypid
+           where t.typname='rol_usuario' and e.enumlabel='COORDINADOR')                                       as h8_rol_coordinador,
+  exists (select 1 from information_schema.columns
+           where table_schema='public' and table_name='reportes' and column_name='origen_ref')                as h9_importar_whatsapp,
+  to_regclass('public.placas_qr') is not null                                                                 as h10_placas_qr,
+  exists (select 1 from pg_proc where proname='convocar_jornada')                                             as h11_jornadas,
+  exists (select 1 from pg_proc where proname='avisar_fichas_quietas')                                        as h12_ficha_quieta;
 `;
 
 const cliente = new pg.Client({ connectionString: url, ssl: { rejectUnauthorized: false } });

@@ -108,6 +108,17 @@ export function Inicio() {
           </Boton>
         </form>
 
+        <p className="text-center text-sm text-suave">
+          ¿Tienes una foto?{' '}
+          <Link to="/buscar-foto" className="font-semibold text-acento hover:underline">
+            Busca casos parecidos
+          </Link>
+          {' · '}¿Coordinas una fundación?{' '}
+          <Link to="/importar" className="font-semibold text-acento hover:underline">
+            Importa tus casos de WhatsApp
+          </Link>
+        </p>
+
         <p className="text-center text-xs text-suave">Sin cuenta ni contraseña. Solo te pedimos un nombre y un teléfono cuando haga falta.</p>
       </section>
 

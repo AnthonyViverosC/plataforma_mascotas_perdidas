@@ -107,9 +107,13 @@ export function Reporte() {
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
                   <h1 className="text-2xl font-bold">{ETIQUETA_ESPECIE[reporte.especie]} sin identificar</h1>
-                  <p className="text-xs text-suave">Reportado por alguien que lo vio, no por su dueño</p>
+                  <p className="text-xs text-suave">
+                    {reporte.origen === 'WHATSAPP' && reporte.origen_nombre
+                      ? `Publicado por ${reporte.origen_nombre}, que lo administra en su grupo de WhatsApp`
+                      : 'Reportado por alguien que lo vio, no por su dueño'}
+                  </p>
                 </div>
-                <Insignia tono="info">Avistamiento</Insignia>
+                <Insignia tono="info">{reporte.origen === 'WHATSAPP' ? 'Importado de WhatsApp' : 'Avistamiento'}</Insignia>
               </div>
 
               <div>

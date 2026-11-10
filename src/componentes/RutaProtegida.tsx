@@ -18,6 +18,10 @@ const INTRO: Record<Exclude<Rol, 'ADMIN'>, { titulo: string; texto: string }> = 
     titulo: 'Identifícate para registrar lecturas',
     texto: 'La lectura queda firmada con tu nombre en el historial del caso. No creamos ninguna cuenta.',
   },
+  COORDINADOR: {
+    titulo: 'Identifica a tu fundación',
+    texto: 'Tu nombre y un teléfono de contacto. Los casos que importes quedan firmados con el nombre de tu fundación. No creamos ninguna cuenta.',
+  },
   CIUDADANO: {
     titulo: 'Primero, tus datos',
     texto: 'Solo tu nombre y un teléfono de contacto. No creamos ninguna cuenta ni pedimos contraseña.',

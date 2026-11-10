@@ -19,7 +19,7 @@ export const perfilSchema = z.object({
     .string()
     .trim()
     .regex(/^\+?[0-9 ]{7,15}$/, 'El teléfono debe tener entre 7 y 15 dígitos (puede iniciar con +).'),
-  rol: z.enum(['PROPIETARIO', 'CIUDADANO', 'VETERINARIO'], { errorMap: () => ({ message: 'Selecciona tu perfil.' }) }),
+  rol: z.enum(['PROPIETARIO', 'CIUDADANO', 'VETERINARIO', 'COORDINADOR'], { errorMap: () => ({ message: 'Selecciona tu perfil.' }) }),
   // El consentimiento ya no es una casilla: se informa junto al botón y se
   // envía siempre en true. La base lo sigue exigiendo (perfiles.acepto_datos).
   aceptoDatos: z.literal(true),
@@ -132,6 +132,59 @@ export const preguntasVerificacionSchema = z
     if (new Set(preguntas).size !== preguntas.length) {
       ctx.addIssue({ code: 'custom', message: 'Las preguntas no pueden repetirse.' });
     }
+  });
+
+/**
+ * Datos de envío de la placa con QR (HU-11). El teléfono sigue la misma regla
+ * que el del perfil; la dirección pide algo más que "calle 5".
+ */
+export const placaSchema = z.object({
+  nombre_envio: z.string().trim().min(2, 'Escribe el nombre de quien recibe la placa.').max(80, 'El nombre admite máximo 80 caracteres.'),
+  direccion_envio: z
+    .string()
+    .trim()
+    .min(8, 'Escribe la dirección de envío completa (mínimo 8 caracteres).')
+    .max(200, 'La dirección admite máximo 200 caracteres.'),
+  ciudad: z.string().trim().min(2, 'Escribe la ciudad de envío.').max(60, 'La ciudad admite máximo 60 caracteres.'),
+  telefono_envio: z
+    .string()
+    .trim()
+    .regex(/^\+?[0-9 ]{7,15}$/, 'El teléfono debe tener entre 7 y 15 dígitos (puede iniciar con +).'),
+  notas: z.string().trim().max(200, 'Las notas admiten máximo 200 caracteres.'),
+});
+
+/** Quien escanea una placa y deja un aviso al dueño (HU-11). */
+export const avisoPlacaSchema = z
+  .string()
+  .trim()
+  .min(5, 'Cuéntale al dueño dónde y cómo está su mascota (mínimo 5 caracteres).')
+  .max(300, 'El mensaje admite máximo 300 caracteres.');
+
+/** Nombre de la fundación o del grupo del que se importan los casos (HU-07). */
+export const origenImportacionSchema = z
+  .string()
+  .trim()
+  .min(2, 'Escribe el nombre de la fundación o del grupo (mínimo 2 caracteres).')
+  .max(80, 'El nombre admite máximo 80 caracteres.');
+
+/**
+ * Jornada de búsqueda convocada por el dueño. La base vuelve a validar todo
+ * (convocar_jornada); aquí se da el mensaje antes de enviar.
+ */
+export const jornadaSchema = (ahora: Date = new Date()) =>
+  z.object({
+    iniciaEn: z
+      .string()
+      .min(1, 'Elige el día y la hora de la jornada.')
+      .refine((v) => !Number.isNaN(new Date(v).getTime()), 'La fecha no es válida.')
+      .refine((v) => new Date(v).getTime() >= ahora.getTime() + 30 * 60_000, 'La jornada debe empezar al menos 30 minutos después de ahora.')
+      .refine((v) => new Date(v).getTime() <= ahora.getTime() + 30 * 86_400_000, 'La jornada debe ser dentro de los próximos 30 días.'),
+    punto: z
+      .string()
+      .trim()
+      .min(4, 'Escribe el punto de encuentro (mínimo 4 caracteres).')
+      .max(120, 'El punto de encuentro admite máximo 120 caracteres.'),
+    nota: z.string().trim().max(300, 'La nota admite máximo 300 caracteres.'),
   });
 
 export const anulacionSchema = z

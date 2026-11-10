@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { BotonEnlace } from '../componentes/Boton';
-import { IconoChip, IconoEditar, IconoEscudo, IconoMas, IconoOjo, IconoPata } from '../componentes/Iconos';
+import { IconoChip, IconoEditar, IconoEscudo, IconoMas, IconoOjo, IconoPata, IconoQR } from '../componentes/Iconos';
 import { TarjetaCaso } from '../componentes/TarjetaCaso';
 import { Aviso, Cargando, EncabezadoPagina, EtiquetaSeccion, Insignia, InsigniaVerificacion, Tarjeta, Vacio } from '../componentes/ui';
 import { useMisCasos } from '../hooks/useMisCasos';
 import { useSesion } from '../hooks/useSesion';
+import { casoQuieto, diasSinActividad, enlaceWhatsApp, textoDifusion } from '../lib/compartir';
 import { formatearFecha, idCorto } from '../lib/formato';
 import { mensajeError, supabase } from '../lib/supabase';
 import {
@@ -55,6 +56,9 @@ export function Panel() {
   const esPropietario = perfil.rol === 'PROPIETARIO' || perfil.rol === 'ADMIN';
   const casosAbiertos = new Set(casos.filter((c) => c.tipo === 'PERDIDA' && c.estado !== 'CERRADO' && c.estado !== 'RESUELTO').map((c) => c.mascota_id));
 
+  // Fichas que llevan días sin moverse: es justo cuando conviene volver a difundirlas.
+  const quietos = casos.filter((c) => c.tipo === 'PERDIDA' && casoQuieto(c));
+
   const foto = (m: MascotaConFotos) => [...m.fotos].sort((a, b) => Number(b.es_principal) - Number(a.es_principal) || a.orden - b.orden)[0]?.url;
 
   return (
@@ -83,6 +87,23 @@ export function Panel() {
       />
       {(error || errorCasos) && <Aviso tipo="alerta">{error ?? errorCasos}</Aviso>}
 
+      {quietos.map((c) => (
+        <Aviso key={c.id} tipo="aviso" titulo={`La ficha de ${c.mascota_nombre ?? 'tu mascota'} lleva ${diasSinActividad(c.ultima_actividad_en)} días sin movimiento`}>
+          <span className="block">Vuelve a compartirla o pega el cartel en tu barrio: las fichas que se difunden de nuevo reciben más avisos.</span>
+          <span className="mt-2 flex flex-wrap gap-3 text-xs font-semibold">
+            <a href={enlaceWhatsApp(textoDifusion(c, `${window.location.origin}/caso/${c.id}`))} target="_blank" rel="noopener noreferrer" className="underline">
+              Compartir por WhatsApp
+            </a>
+            <Link to={`/caso/${c.id}/cartel`} className="underline">
+              Imprimir cartel
+            </Link>
+            <Link to={`/caso/${c.id}`} className="underline">
+              Ampliar el radio
+            </Link>
+          </span>
+        </Aviso>
+      ))}
+
       {esPropietario && (
         <section className="space-y-3">
           <EtiquetaSeccion>Mis mascotas</EtiquetaSeccion>
@@ -108,6 +129,9 @@ export function Panel() {
                     <div className="flex flex-wrap gap-2 pt-1">
                       <Link to={`/mascotas/${m.id}`} className="flex items-center gap-1 text-xs font-semibold text-tinta hover:underline">
                         <IconoEditar tamano={13} /> Editar
+                      </Link>
+                      <Link to={`/mascotas/${m.id}/placa`} className="flex items-center gap-1 text-xs font-semibold text-acento hover:underline">
+                        <IconoQR tamano={13} /> Placa QR
                       </Link>
                       {casosAbiertos.has(m.id) ? (
                         <span className="text-xs font-semibold text-alerta">Caso abierto</span>

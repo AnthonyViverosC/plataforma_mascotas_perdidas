@@ -41,6 +41,7 @@ export function TarjetaReporte({ reporte, extra }: { reporte: Reporte; extra?: s
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="font-mono text-[10px] text-suave">{idCorto(reporte.id, 'REP')}</span>
           <Insignia tono="acento">{ETIQUETA_ESTADO_ANIMAL[reporte.estado_animal]}</Insignia>
+          {reporte.origen === 'WHATSAPP' && reporte.origen_nombre && <Insignia tono="info">Vía {reporte.origen_nombre}</Insignia>}
         </div>
         <p className="truncate text-sm font-semibold">{rasgos.join(' · ')}</p>
         <p className="flex items-center gap-1 text-xs text-suave">

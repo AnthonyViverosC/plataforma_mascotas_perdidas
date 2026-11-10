@@ -70,12 +70,12 @@ export function FormularioPerfil({
   return (
     <form onSubmit={enviar} className="space-y-4" noValidate>
       <Campo
-        etiqueta={rol === 'VETERINARIO' ? 'Tu nombre y clínica' : 'Tu nombre'}
+        etiqueta={rol === 'VETERINARIO' ? 'Tu nombre y clínica' : rol === 'COORDINADOR' ? 'Tu nombre y fundación' : 'Tu nombre'}
         value={datos.nombre}
         onChange={(e) => setDatos((d) => ({ ...d, nombre: e.target.value }))}
         error={errores.nombre}
         autoComplete="name"
-        placeholder={rol === 'VETERINARIO' ? 'Juan Pérez · Clínica San Roque' : 'Ana Martínez'}
+        placeholder={rol === 'VETERINARIO' ? 'Juan Pérez · Clínica San Roque' : rol === 'COORDINADOR' ? 'Marta Ruiz · Fundación Patas' : 'Ana Martínez'}
       />
       <Campo
         etiqueta="Celular de contacto"

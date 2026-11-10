@@ -23,6 +23,7 @@ export const META_EVENTO: Record<TipoEvento, { etiqueta: string; tono: TonoEvent
   CAMBIO_ESTADO: { etiqueta: 'Cambio de estado', tono: 'alerta' },
   RADIO_AMPLIADO: { etiqueta: 'Radio de búsqueda', tono: 'info' },
   CIERRE: { etiqueta: 'Cierre del caso', tono: 'neutro' },
+  JORNADA: { etiqueta: 'Jornada de búsqueda', tono: 'aviso' },
 };
 
 /** Nombre y rol públicos de varios usuarios (sin teléfono). */

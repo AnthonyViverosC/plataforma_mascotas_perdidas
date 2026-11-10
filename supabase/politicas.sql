@@ -23,6 +23,10 @@ alter table public.preguntas_verif    enable row level security;
 alter table public.respuestas_verif   enable row level security;
 alter table public.eventos            enable row level security;
 alter table public.notificaciones     enable row level security;
+alter table public.placas_qr          enable row level security;
+alter table public.avisos_placa       enable row level security;
+alter table public.jornadas_busqueda  enable row level security;
+alter table public.jornada_asistentes enable row level security;
 
 -- ---------------------------------------------------------------------
 -- perfiles: cada usuario lee y edita solo el suyo.
@@ -202,6 +206,35 @@ create policy notificaciones_leer_propias on public.notificaciones
   for select to authenticated using (usuario_id = auth.uid());
 create policy notificaciones_marcar_propias on public.notificaciones
   for update to authenticated using (usuario_id = auth.uid()) with check (usuario_id = auth.uid());
+
+-- ---------------------------------------------------------------------
+-- placas_qr y avisos_placa (HU-11)
+-- ---------------------------------------------------------------------
+-- El propietario lee sus pedidos; solo ADMIN cambia el estado. No hay INSERT
+-- directo: los pedidos se crean con solicitar_placa().
+grant select on public.placas_qr to authenticated;
+grant update (estado, actualizado_en) on public.placas_qr to authenticated;
+grant select on public.avisos_placa to authenticated;
+
+create policy placas_leer_dueno on public.placas_qr
+  for select to authenticated
+  using (solicitante_id = auth.uid() or public.es_dueno_mascota(mascota_id));
+
+create policy placas_admin_actualizar on public.placas_qr
+  for update to authenticated
+  using (public.mi_rol() = 'ADMIN') with check (public.mi_rol() = 'ADMIN');
+
+create policy avisos_placa_leer_dueno on public.avisos_placa
+  for select to authenticated
+  using (exists (select 1 from public.placas_qr p
+                  where p.id = placa_id and public.es_dueno_mascota(p.mascota_id)));
+
+-- ---------------------------------------------------------------------
+-- jornadas_busqueda y jornada_asistentes: sin acceso directo. Se leen con
+-- jornadas_caso() y se escriben con convocar/cancelar/apuntarse/salir.
+-- ---------------------------------------------------------------------
+revoke all on public.jornadas_busqueda  from anon, authenticated;
+revoke all on public.jornada_asistentes from anon, authenticated;
 
 -- ---------------------------------------------------------------------
 -- Storage: bucket "fotos" público de lectura, máx. 5 MB, JPG/PNG/WEBP.

@@ -17,6 +17,7 @@ import {
   IconoMas,
   IconoOjo,
   IconoRadar,
+  IconoUsuario,
   IconoX,
 } from './Iconos';
 import { Aviso, Cargando, Vacio } from './ui';
@@ -39,6 +40,7 @@ const ICONO: Record<TipoEvento, (p: { tamano?: number }) => ReactNode> = {
   CAMBIO_ESTADO: IconoAlerta,
   RADIO_AMPLIADO: IconoMapa,
   CIERRE: IconoDocumento,
+  JORNADA: IconoUsuario,
 };
 
 const COLOR_TONO: Record<TonoEvento, { circulo: string; etiqueta: string }> = {

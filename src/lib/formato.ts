@@ -23,6 +23,18 @@ export function tiempoRelativo(iso: string | Date): string {
   return formatearFecha(d, false);
 }
 
+/** "en 20 min", "en 3 horas", "en 2 días" (para fechas futuras) */
+export function tiempoHasta(iso: string | Date, ahora: Date = new Date()): string {
+  const d = typeof iso === 'string' ? new Date(iso) : iso;
+  const min = Math.round((d.getTime() - ahora.getTime()) / 60_000);
+  if (min <= 0) return 'ahora';
+  if (min < 60) return `en ${min} min`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `en ${h} ${h === 1 ? 'hora' : 'horas'}`;
+  const dias = Math.round(h / 24);
+  return `en ${dias} ${dias === 1 ? 'día' : 'días'}`;
+}
+
 /** Identificador corto y estable para mostrar: "#CAS-8F2A" */
 export function idCorto(id: string, prefijo = 'CAS'): string {
   return `#${prefijo}-${id.replace(/-/g, '').slice(0, 4).toUpperCase()}`;

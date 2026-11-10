@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import L from 'leaflet';
-import { Circle, MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from 'react-leaflet';
+import { Circle, MapContainer, Marker, Polyline, Popup, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 import { Link } from 'react-router-dom';
 import { obtenerUbicacionActual, PUNTO_CENTRAL, type Punto } from '../lib/geo';
 import { Boton } from './Boton';
@@ -34,6 +34,29 @@ function Recentrar({ centro, zoom }: { centro: Punto; zoom?: number }) {
     mapa.setView([centro.lat, centro.lng], zoom ?? mapa.getZoom(), { animate: true });
   }, [centro.lat, centro.lng, zoom, mapa]);
   return null;
+}
+
+/** Encuadra todos los puntos de una ruta (con un margen) cuando cambian. */
+function Encuadrar({ ruta }: { ruta: Punto[] }) {
+  const mapa = useMap();
+  const clave = ruta.map((p) => `${p.lat.toFixed(5)},${p.lng.toFixed(5)}`).join('|');
+  useEffect(() => {
+    if (ruta.length < 2) return;
+    mapa.fitBounds(L.latLngBounds(ruta.map((p) => [p.lat, p.lng] as [number, number])), { padding: [28, 28], maxZoom: 16 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clave, mapa]);
+  return null;
+}
+
+/** Marcador numerado para la secuencia de avistamientos. */
+function iconoNumerado(n: number) {
+  return L.divIcon({
+    className: '',
+    html: `<span class="marcador-numero">${n}</span>`,
+    iconSize: [24, 24],
+    iconAnchor: [12, 12],
+    popupAnchor: [0, -12],
+  });
 }
 
 function CapturarClic({ onClic }: { onClic: (p: Punto) => void }) {
@@ -118,19 +141,26 @@ export interface PuntoMapa extends Punto {
   detalle?: string;
   enlace?: string;
   tono?: TonoMarcador;
+  /** Si viene, el marcador muestra este número (orden en la ruta). */
+  numero?: number;
 }
 
-/** Mapa de solo lectura con varios puntos y, opcionalmente, un círculo de radio. */
+/**
+ * Mapa de solo lectura con varios puntos y, opcionalmente, un círculo de radio
+ * y una ruta (línea punteada que une los puntos en orden cronológico).
+ */
 export function MapaPuntos({
   puntos,
   centro,
   circulo,
+  ruta,
   alto = 260,
   zoom = 13,
 }: {
   puntos: PuntoMapa[];
   centro?: Punto;
   circulo?: Punto & { radioKm: number };
+  ruta?: Punto[];
   alto?: number;
   zoom?: number;
 }) {
@@ -140,6 +170,15 @@ export function MapaPuntos({
       <MapContainer center={[c.lat, c.lng]} zoom={zoom} className="h-full w-full" scrollWheelZoom={false}>
         <TileLayer attribution={ATRIBUCION} url={TESELAS} />
         <Recentrar centro={c} zoom={zoom} />
+        {ruta && ruta.length > 1 && (
+          <>
+            <Encuadrar ruta={ruta} />
+            <Polyline
+              positions={ruta.map((p) => [p.lat, p.lng] as [number, number])}
+              pathOptions={{ color: '#b45309', weight: 3, opacity: 0.85, dashArray: '6 6' }}
+            />
+          </>
+        )}
         {circulo && (
           <Circle
             center={[circulo.lat, circulo.lng]}
@@ -148,7 +187,7 @@ export function MapaPuntos({
           />
         )}
         {puntos.map((p) => (
-          <Marker key={p.id} position={[p.lat, p.lng]} icon={iconos[p.tono ?? 'tinta']}>
+          <Marker key={p.id} position={[p.lat, p.lng]} icon={p.numero ? iconoNumerado(p.numero) : iconos[p.tono ?? 'tinta']}>
             <Popup>
               <div className="space-y-1 text-xs">
                 <p className="font-semibold">{p.titulo}</p>

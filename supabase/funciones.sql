@@ -143,6 +143,7 @@ begin
   v_rol := case upper(coalesce(new.raw_user_meta_data ->> 'rol', 'CIUDADANO'))
              when 'PROPIETARIO' then 'PROPIETARIO'::public.rol_usuario
              when 'VETERINARIO' then 'VETERINARIO'::public.rol_usuario
+             when 'COORDINADOR' then 'COORDINADOR'::public.rol_usuario
              else 'CIUDADANO'::public.rol_usuario
            end;
 
@@ -579,7 +580,7 @@ create trigger casos_despues_actualizar
 -- Cambio de perfil sin perder la sesión.
 -- Una misma persona puede encontrar un animal hoy y perder el suyo mañana: el
 -- rol es una etiqueta de lo que viene a hacer, no un privilegio. Se permiten
--- los mismos tres que en el registro; ADMIN nunca se autoasigna.
+-- los mismos cuatro que en el registro; ADMIN nunca se autoasigna.
 create or replace function public.cambiar_rol(p_rol text)
 returns public.rol_usuario
 language plpgsql
@@ -596,6 +597,7 @@ begin
   v_rol := case upper(btrim(coalesce(p_rol, '')))
              when 'PROPIETARIO' then 'PROPIETARIO'::public.rol_usuario
              when 'VETERINARIO' then 'VETERINARIO'::public.rol_usuario
+             when 'COORDINADOR' then 'COORDINADOR'::public.rol_usuario
              when 'CIUDADANO'   then 'CIUDADANO'::public.rol_usuario
              else null
            end;
@@ -683,9 +685,16 @@ begin
   if current_user in ('anon', 'authenticated') then
     if tg_op = 'INSERT' then
       new.creado_en := now();
+      if new.origen <> 'APP' and public.mi_rol() is distinct from 'COORDINADOR' then
+        raise exception 'Solo un coordinador de fundación puede importar casos de WhatsApp.'
+          using errcode = '42501';
+      end if;
     else
       new.creado_en := old.creado_en;
       new.autor_id := old.autor_id;
+      new.origen := old.origen;
+      new.origen_nombre := old.origen_nombre;
+      new.origen_ref := old.origen_ref;
     end if;
   end if;
   return new;
@@ -1566,6 +1575,180 @@ $$;
 -- ---------------------------------------------------------------------
 -- Permisos de ejecución
 -- ---------------------------------------------------------------------
+-- Placas con código QR (HU-11)
+-- ---------------------------------------------------------------------
+-- solicitar_placa: crea el pedido y genera el código del QR
+-- ---------------------------------------------------------------------
+create or replace function public.solicitar_placa(
+  p_mascota   uuid,
+  p_nombre    text,
+  p_direccion text,
+  p_ciudad    text,
+  p_telefono  text,
+  p_notas     text default null)
+returns public.placas_qr
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_mascota public.mascotas;
+  v_placa   public.placas_qr;
+  v_codigo  text;
+begin
+  if auth.uid() is null then
+    raise exception 'Necesitas una sesión para solicitar la placa.' using errcode = '42501';
+  end if;
+  select * into v_mascota from public.mascotas where id = p_mascota;
+  if not found or v_mascota.propietario_id <> auth.uid() then
+    raise exception 'Solo el propietario puede solicitar la placa de su mascota.' using errcode = '42501';
+  end if;
+
+  if char_length(btrim(coalesce(p_nombre, ''))) < 2 then
+    raise exception 'Escribe el nombre de quien recibe la placa.';
+  end if;
+  if char_length(btrim(coalesce(p_direccion, ''))) < 8 then
+    raise exception 'Escribe la dirección de envío completa (mínimo 8 caracteres).';
+  end if;
+  if char_length(btrim(coalesce(p_ciudad, ''))) < 2 then
+    raise exception 'Escribe la ciudad de envío.';
+  end if;
+  if coalesce(p_telefono, '') !~ '^\+?[0-9 ]{7,15}$' then
+    raise exception 'El teléfono de envío debe tener entre 7 y 15 dígitos.';
+  end if;
+
+  -- Código corto e impredecible (gen_random_uuid es criptográficamente aleatorio).
+  loop
+    v_codigo := substr(md5(gen_random_uuid()::text || clock_timestamp()::text), 1, 10);
+    exit when not exists (select 1 from public.placas_qr where codigo = v_codigo);
+  end loop;
+
+  begin
+    insert into public.placas_qr (codigo, mascota_id, solicitante_id, nombre_envio, direccion_envio,
+                                  ciudad, telefono_envio, notas)
+    values (v_codigo, p_mascota, auth.uid(), btrim(p_nombre), btrim(p_direccion),
+            btrim(p_ciudad), btrim(p_telefono), nullif(btrim(coalesce(p_notas, '')), ''))
+    returning * into v_placa;
+  exception when unique_violation then
+    raise exception 'Esta mascota ya tiene una placa en trámite. Cancélala o espera a que llegue.';
+  end;
+
+  perform public._notificar(
+    auth.uid(),
+    'Placa QR solicitada',
+    'Recibimos tu pedido de la placa de ' || v_mascota.nombre || '. Ya puedes ver y descargar su código QR.',
+    '/mascotas/' || v_mascota.id || '/placa');
+  return v_placa;
+end;
+$$;
+
+-- ---------------------------------------------------------------------
+-- cancelar_placa: solo mientras el pedido sigue en SOLICITADA
+-- ---------------------------------------------------------------------
+create or replace function public.cancelar_placa(p_placa uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_placa public.placas_qr;
+begin
+  select * into v_placa from public.placas_qr where id = p_placa;
+  if not found or v_placa.solicitante_id <> auth.uid() then
+    raise exception 'Solo quien hizo el pedido puede cancelarlo.' using errcode = '42501';
+  end if;
+  if v_placa.estado <> 'SOLICITADA' then
+    raise exception 'El pedido ya está en producción o fue enviado: no se puede cancelar.';
+  end if;
+  update public.placas_qr set estado = 'CANCELADA', actualizado_en = now() where id = p_placa;
+end;
+$$;
+
+-- ---------------------------------------------------------------------
+-- placa_publica: lo que ve quien escanea el QR (sin sesión)
+-- ---------------------------------------------------------------------
+create or replace function public.placa_publica(p_codigo text)
+returns table (
+  codigo          text,
+  mascota_nombre  text,
+  especie         public.especie_animal,
+  raza            text,
+  color_principal text,
+  tamano          public.tamano_animal,
+  temperamento    public.temperamento_animal,
+  nota_manejo     text,
+  foto_url        text,
+  caso_id         uuid)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select p.codigo, m.nombre, m.especie, m.raza, m.color_principal, m.tamano, m.temperamento, m.nota_manejo,
+         (select f.url from public.fotos_mascota f
+           where f.mascota_id = m.id order by f.es_principal desc, f.orden asc limit 1),
+         (select c.id from public.casos c
+           where c.mascota_id = m.id and c.tipo = 'PERDIDA' and c.estado in ('ABIERTO', 'EN_VERIFICACION')
+           order by c.creado_en desc limit 1)
+    from public.placas_qr p
+    join public.mascotas m on m.id = p.mascota_id
+   where p.codigo = lower(btrim(coalesce(p_codigo, '')))
+     and p.estado <> 'CANCELADA'
+$$;
+
+-- ---------------------------------------------------------------------
+-- avisar_dueno_placa: quien escanea una placa sin caso abierto avisa al dueño
+-- ---------------------------------------------------------------------
+create or replace function public.avisar_dueno_placa(p_codigo text, p_mensaje text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_placa  public.placas_qr;
+  v_nombre text;
+  v_autor  public.perfiles;
+begin
+  if auth.uid() is null then
+    raise exception 'Necesitas dejar tu nombre y celular para avisar al dueño.' using errcode = '42501';
+  end if;
+  if char_length(btrim(coalesce(p_mensaje, ''))) < 5 then
+    raise exception 'Cuéntale al dueño dónde y cómo está su mascota (mínimo 5 caracteres).';
+  end if;
+  if char_length(p_mensaje) > 300 then
+    raise exception 'El mensaje admite máximo 300 caracteres.';
+  end if;
+
+  select * into v_placa from public.placas_qr
+   where codigo = lower(btrim(coalesce(p_codigo, ''))) and estado <> 'CANCELADA';
+  if not found then
+    raise exception 'Esta placa no existe o fue cancelada.';
+  end if;
+  if v_placa.solicitante_id = auth.uid() then
+    raise exception 'Esta es tu propia placa.';
+  end if;
+  if (select count(*) from public.avisos_placa
+       where placa_id = v_placa.id and autor_id = auth.uid()
+         and creado_en > now() - interval '1 hour') >= 3 then
+    raise exception 'Ya avisaste varias veces en la última hora. Espera un momento.';
+  end if;
+
+  select * into v_autor from public.perfiles where id = auth.uid();
+  select nombre into v_nombre from public.mascotas where id = v_placa.mascota_id;
+
+  insert into public.avisos_placa (placa_id, autor_id, mensaje) values (v_placa.id, auth.uid(), btrim(p_mensaje));
+
+  perform public._notificar(
+    v_placa.solicitante_id,
+    'Escanearon la placa de ' || v_nombre,
+    v_autor.nombre || ' (' || v_autor.telefono || ') escaneó la placa y dice: «' || btrim(p_mensaje) || '»',
+    '/mascotas/' || v_placa.mascota_id || '/placa');
+end;
+$$;
+
+-- ---------------------------------------------------------------------
 revoke execute on function public._notificar(uuid, text, text, text) from public, anon, authenticated;
 revoke execute on function public._evento(uuid, text, uuid, text) from public, anon, authenticated;
 revoke execute on function public._vincular_lecturas(uuid) from public, anon, authenticated;
@@ -1605,3 +1788,275 @@ grant execute on function public.contacto_reporte(uuid) to authenticated;
 grant execute on function public.contacto_caso(uuid) to anon, authenticated;
 grant execute on function public.distancia_km(double precision, double precision, double precision, double precision) to anon, authenticated;
 grant execute on function public.normalizar_texto(text) to anon, authenticated;
+
+-- HU-11: placas con código QR
+revoke execute on function public.solicitar_placa(uuid, text, text, text, text, text) from public, anon;
+revoke execute on function public.cancelar_placa(uuid) from public, anon;
+revoke execute on function public.avisar_dueno_placa(text, text) from public, anon;
+grant execute on function public.solicitar_placa(uuid, text, text, text, text, text) to authenticated;
+grant execute on function public.cancelar_placa(uuid) to authenticated;
+grant execute on function public.avisar_dueno_placa(text, text) to authenticated;
+-- Público a propósito: quien escanea el QR no tiene sesión.
+revoke execute on function public.placa_publica(text) from public;
+grant execute on function public.placa_publica(text) to anon, authenticated;
+
+-- =====================================================================
+-- Jornadas de búsqueda (mejora sobre el backlog, migración h11)
+-- =====================================================================
+-- ---------------------------------------------------------------------
+-- jornadas_caso: lectura pública de las jornadas de un caso
+-- ---------------------------------------------------------------------
+create or replace function public.jornadas_caso(p_caso uuid)
+returns table (
+  id           uuid,
+  inicia_en    timestamptz,
+  punto_texto  text,
+  nota         text,
+  cancelada    boolean,
+  organizador  text,
+  asistentes   integer,
+  yo_asisto    boolean,
+  es_mia       boolean)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select j.id, j.inicia_en, j.punto_texto, j.nota, j.cancelada,
+         p.nombre,
+         (select count(*)::integer from public.jornada_asistentes a where a.jornada_id = j.id),
+         exists (select 1 from public.jornada_asistentes a where a.jornada_id = j.id and a.perfil_id = auth.uid()),
+         j.organizador_id = auth.uid()
+    from public.jornadas_busqueda j
+    join public.perfiles p on p.id = j.organizador_id
+   where j.caso_id = p_caso
+     -- Las pasadas solo se muestran el mismo día, para no llenar la ficha.
+     and j.inicia_en > now() - interval '12 hours'
+   order by j.inicia_en
+$$;
+
+-- ---------------------------------------------------------------------
+-- convocar_jornada: solo el dueño de un caso de pérdida vivo
+-- ---------------------------------------------------------------------
+create or replace function public.convocar_jornada(
+  p_caso   uuid,
+  p_inicia timestamptz,
+  p_punto  text,
+  p_nota   text default null)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_caso    public.casos;
+  v_nombre  text;
+  v_id      uuid;
+  v_aviso   uuid;
+begin
+  if auth.uid() is null then
+    raise exception 'Necesitas una sesión para convocar una jornada.' using errcode = '42501';
+  end if;
+  select * into v_caso from public.casos where id = p_caso;
+  if not found or v_caso.creador_id <> auth.uid() then
+    raise exception 'Solo quien publicó el caso puede convocar una jornada.' using errcode = '42501';
+  end if;
+  if v_caso.tipo <> 'PERDIDA' or v_caso.estado not in ('ABIERTO', 'EN_VERIFICACION') then
+    raise exception 'Solo se convocan jornadas para casos de pérdida abiertos.';
+  end if;
+  if p_inicia is null or p_inicia < now() + interval '30 minutes' then
+    raise exception 'La jornada debe empezar al menos 30 minutos después de ahora.';
+  end if;
+  if p_inicia > now() + interval '30 days' then
+    raise exception 'La jornada debe ser dentro de los próximos 30 días.';
+  end if;
+  if char_length(btrim(coalesce(p_punto, ''))) < 4 then
+    raise exception 'Escribe el punto de encuentro (mínimo 4 caracteres).';
+  end if;
+  if char_length(btrim(p_punto)) > 120 then
+    raise exception 'El punto de encuentro admite máximo 120 caracteres.';
+  end if;
+  if char_length(coalesce(p_nota, '')) > 300 then
+    raise exception 'La nota admite máximo 300 caracteres.';
+  end if;
+  if (select count(*) from public.jornadas_busqueda
+       where caso_id = p_caso and not cancelada and inicia_en > now()) >= 3 then
+    raise exception 'Ya tienes 3 jornadas próximas para este caso. Cancela una antes de convocar otra.';
+  end if;
+
+  insert into public.jornadas_busqueda (caso_id, organizador_id, inicia_en, punto_texto, nota)
+  values (p_caso, auth.uid(), p_inicia, btrim(p_punto), nullif(btrim(coalesce(p_nota, '')), ''))
+  returning id into v_id;
+
+  select m.nombre into v_nombre from public.mascotas m where m.id = v_caso.mascota_id;
+
+  perform public._evento(p_caso, 'JORNADA', auth.uid(),
+    'Jornada de búsqueda convocada para el ' || public._fecha_local(p_inicia) || ' en ' || btrim(p_punto) || '.');
+
+  -- Avisa a quienes ya reportaron haberla visto: son los que mejor conocen la zona.
+  for v_aviso in
+    select distinct r.autor_id
+      from public.coincidencias c
+      join public.reportes r on r.id = c.reporte_id
+     where c.caso_id = p_caso and c.estado <> 'DESCARTADA' and r.autor_id <> auth.uid()
+  loop
+    perform public._notificar(
+      v_aviso,
+      'Jornada para buscar a ' || coalesce(v_nombre, 'una mascota'),
+      'Su familia convoca una búsqueda el ' || public._fecha_local(p_inicia) || ' en ' || btrim(p_punto) || '. Tú la viste: tu ayuda vale mucho.',
+      '/caso/' || p_caso);
+  end loop;
+
+  return v_id;
+end;
+$$;
+
+-- ---------------------------------------------------------------------
+-- cancelar_jornada: el organizador; avisa a quienes se apuntaron
+-- ---------------------------------------------------------------------
+create or replace function public.cancelar_jornada(p_jornada uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_j public.jornadas_busqueda;
+  v_a uuid;
+begin
+  select * into v_j from public.jornadas_busqueda where id = p_jornada;
+  if not found or v_j.organizador_id <> auth.uid() then
+    raise exception 'Solo quien convocó la jornada puede cancelarla.' using errcode = '42501';
+  end if;
+  if v_j.cancelada then
+    return;
+  end if;
+  update public.jornadas_busqueda set cancelada = true where id = p_jornada;
+  perform public._evento(v_j.caso_id, 'JORNADA', auth.uid(),
+    'Jornada del ' || public._fecha_local(v_j.inicia_en) || ' cancelada.');
+  for v_a in select perfil_id from public.jornada_asistentes where jornada_id = p_jornada loop
+    perform public._notificar(v_a, 'Jornada cancelada',
+      'Se canceló la jornada de búsqueda del ' || public._fecha_local(v_j.inicia_en) || ' en ' || v_j.punto_texto || '.',
+      '/caso/' || v_j.caso_id);
+  end loop;
+end;
+$$;
+
+-- ---------------------------------------------------------------------
+-- apuntarse_jornada / salir_jornada
+-- ---------------------------------------------------------------------
+create or replace function public.apuntarse_jornada(p_jornada uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_j      public.jornadas_busqueda;
+  v_nombre text;
+begin
+  if auth.uid() is null then
+    raise exception 'Déjanos tu nombre y celular para apuntarte.' using errcode = '42501';
+  end if;
+  select * into v_j from public.jornadas_busqueda where id = p_jornada;
+  if not found or v_j.cancelada then
+    raise exception 'Esta jornada no existe o fue cancelada.';
+  end if;
+  if v_j.inicia_en < now() - interval '2 hours' then
+    raise exception 'Esta jornada ya pasó.';
+  end if;
+  if v_j.organizador_id = auth.uid() then
+    raise exception 'Eres quien convoca la jornada.';
+  end if;
+
+  insert into public.jornada_asistentes (jornada_id, perfil_id) values (p_jornada, auth.uid())
+  on conflict do nothing;
+  if not found then
+    return; -- ya estaba apuntado: no se repite el aviso
+  end if;
+
+  select nombre into v_nombre from public.perfiles where id = auth.uid();
+  perform public._notificar(v_j.organizador_id, 'Alguien se sumó a la búsqueda',
+    v_nombre || ' irá a la jornada del ' || public._fecha_local(v_j.inicia_en) || '.',
+    '/caso/' || v_j.caso_id);
+end;
+$$;
+
+create or replace function public.salir_jornada(p_jornada uuid)
+returns void
+language sql
+security definer
+set search_path = public
+as $$
+  delete from public.jornada_asistentes where jornada_id = p_jornada and perfil_id = auth.uid();
+$$;
+
+revoke execute on function public.convocar_jornada(uuid, timestamptz, text, text) from public, anon;
+revoke execute on function public.cancelar_jornada(uuid) from public, anon;
+revoke execute on function public.apuntarse_jornada(uuid) from public, anon;
+revoke execute on function public.salir_jornada(uuid) from public, anon;
+grant execute on function public.convocar_jornada(uuid, timestamptz, text, text) to authenticated;
+grant execute on function public.cancelar_jornada(uuid) to authenticated;
+grant execute on function public.apuntarse_jornada(uuid) to authenticated;
+grant execute on function public.salir_jornada(uuid) to authenticated;
+-- Público a propósito: la ficha del caso se ve sin sesión.
+revoke execute on function public.jornadas_caso(uuid) from public;
+grant execute on function public.jornadas_caso(uuid) to anon, authenticated;
+
+-- =====================================================================
+-- Aviso por ficha quieta (mejora sobre el backlog, migración h12).
+-- Se programa con pg_cron si la extensión está activa.
+-- =====================================================================
+create or replace function public.avisar_fichas_quietas(p_dias integer default 3)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_caso   record;
+  v_total  integer := 0;
+  v_enlace text;
+begin
+  for v_caso in
+    select c.id, c.creador_id, c.ultima_actividad_en, m.nombre
+      from public.casos c
+      left join public.mascotas m on m.id = c.mascota_id
+     where c.tipo = 'PERDIDA'
+       and c.estado in ('ABIERTO', 'EN_VERIFICACION')
+       and c.ultima_actividad_en <= now() - make_interval(days => p_dias)
+  loop
+    v_enlace := '/caso/' || v_caso.id;
+    -- Un aviso por caso cada p_dias días, como máximo.
+    continue when exists (
+      select 1 from public.notificaciones n
+       where n.usuario_id = v_caso.creador_id
+         and n.enlace = v_enlace
+         and n.titulo like 'La ficha de % está quieta'
+         and n.creado_en > now() - make_interval(days => p_dias));
+
+    perform public._notificar(
+      v_caso.creador_id,
+      'La ficha de ' || coalesce(v_caso.nombre, 'tu mascota') || ' está quieta',
+      'Lleva ' || extract(day from now() - v_caso.ultima_actividad_en)::integer
+        || ' días sin avisos. Compártela de nuevo por WhatsApp, imprime el cartel con QR o amplía el radio de búsqueda.',
+      v_enlace);
+    v_total := v_total + 1;
+  end loop;
+  return v_total;
+end;
+$$;
+
+-- Solo la tarea programada (o un administrador desde el SQL Editor) la ejecuta.
+revoke execute on function public.avisar_fichas_quietas(integer) from public, anon, authenticated;
+
+do $$
+begin
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    perform cron.unschedule(jobid) from cron.job where jobname = 'chippet_fichas_quietas';
+    perform cron.schedule('chippet_fichas_quietas', '0 14 * * *', 'select public.avisar_fichas_quietas()');
+  else
+    raise notice 'pg_cron no está activo: avisar_fichas_quietas() quedó creada pero sin programar.';
+  end if;
+end
+$$;

@@ -7,7 +7,7 @@
 -- ---------------------------------------------------------------------
 -- Tipos enumerados
 -- ---------------------------------------------------------------------
-create type public.rol_usuario        as enum ('PROPIETARIO', 'CIUDADANO', 'VETERINARIO', 'ADMIN');
+create type public.rol_usuario        as enum ('PROPIETARIO', 'CIUDADANO', 'VETERINARIO', 'COORDINADOR', 'ADMIN');
 create type public.especie_animal     as enum ('PERRO', 'GATO', 'OTRO');
 create type public.tamano_animal      as enum ('PEQUENO', 'MEDIANO', 'GRANDE');
 create type public.sexo_animal        as enum ('MACHO', 'HEMBRA', 'DESCONOCIDO');
@@ -124,12 +124,23 @@ create table public.reportes (
   ocurrido_en   timestamptz not null,
   nota          text check (nota is null or char_length(nota) <= 500),
   foto_url      text not null check (foto_url ~ '^https?://'),
-  creado_en     timestamptz not null default now()
+  creado_en     timestamptz not null default now(),
+  -- HU-07: de dónde viene el reporte. 'WHATSAPP' solo lo inserta un COORDINADOR
+  -- (trigger reportes_antes_guardar); origen_ref es la huella del mensaje original.
+  origen        text not null default 'APP' constraint reportes_origen_check check (origen in ('APP', 'WHATSAPP')),
+  origen_nombre text constraint reportes_origen_nombre_check
+                  check (origen_nombre is null or char_length(btrim(origen_nombre)) between 2 and 80),
+  origen_ref    text constraint reportes_origen_ref_check
+                  check (origen_ref is null or char_length(origen_ref) between 8 and 80),
+  constraint reportes_origen_coherente
+    check (origen = 'APP' or (origen_nombre is not null and origen_ref is not null))
 );
 
 create index reportes_lat_lng_idx     on public.reportes (lat, lng);
 create index reportes_ocurrido_en_idx on public.reportes (ocurrido_en);
 create index reportes_autor_idx       on public.reportes (autor_id);
+-- Un mismo mensaje no se importa dos veces por la misma persona (HU-07).
+create unique index reportes_origen_ref_idx on public.reportes (autor_id, origen_ref);
 
 -- ---------------------------------------------------------------------
 -- lecturas_microchip (HU-01) — inmutables, solo anulables
@@ -238,7 +249,7 @@ create table public.eventos (
                 'COINCIDENCIA_SUGERIDA', 'COINCIDENCIA_CONFIRMADA', 'COINCIDENCIA_DESCARTADA',
                 'COINCIDENCIA_NO_SEGURO', 'VERIFICACION_INICIADA', 'VERIFICACION_INTENTO',
                 'VERIFICACION_APROBADA', 'VERIFICACION_RECHAZADA', 'VERIFICACION_BLOQUEADA',
-                'CAMBIO_DATOS', 'CAMBIO_ESTADO', 'RADIO_AMPLIADO', 'CIERRE')),
+                'CAMBIO_DATOS', 'CAMBIO_ESTADO', 'RADIO_AMPLIADO', 'CIERRE', 'JORNADA')),
   autor_id    uuid references public.perfiles (id) on delete set null,
   descripcion text not null check (char_length(descripcion) between 1 and 500),
   creado_en   timestamptz not null default now()
@@ -290,6 +301,63 @@ create view public.casos_publicos as
       limit 1)        as foto_url
   from public.casos c
   left join public.mascotas m on m.id = c.mascota_id;
+
+-- ---------------------------------------------------------------------
+-- placas_qr y avisos_placa (HU-11). Los pedidos se crean con solicitar_placa().
+-- ---------------------------------------------------------------------
+create table public.placas_qr (
+  id              uuid primary key default gen_random_uuid(),
+  codigo          text not null unique check (codigo ~ '^[a-z0-9]{10}$'),
+  mascota_id      uuid not null references public.mascotas (id) on delete cascade,
+  solicitante_id  uuid not null references public.perfiles (id) on delete cascade,
+  estado          text not null default 'SOLICITADA'
+                    check (estado in ('SOLICITADA', 'EN_PRODUCCION', 'ENVIADA', 'ENTREGADA', 'CANCELADA')),
+  nombre_envio    text not null check (char_length(btrim(nombre_envio)) between 2 and 80),
+  direccion_envio text not null check (char_length(btrim(direccion_envio)) between 8 and 200),
+  ciudad          text not null check (char_length(btrim(ciudad)) between 2 and 60),
+  telefono_envio  text not null check (telefono_envio ~ '^\+?[0-9 ]{7,15}$'),
+  notas           text check (notas is null or char_length(notas) <= 200),
+  creado_en       timestamptz not null default now(),
+  actualizado_en  timestamptz not null default now()
+);
+create index placas_mascota_idx on public.placas_qr (mascota_id, creado_en desc);
+
+-- Una mascota no puede tener dos pedidos en trámite a la vez.
+create unique index placas_una_en_tramite_idx
+  on public.placas_qr (mascota_id)
+  where estado in ('SOLICITADA', 'EN_PRODUCCION', 'ENVIADA');
+
+create table public.avisos_placa (
+  id         uuid primary key default gen_random_uuid(),
+  placa_id   uuid not null references public.placas_qr (id) on delete cascade,
+  autor_id   uuid not null references public.perfiles (id) on delete cascade,
+  mensaje    text not null check (char_length(btrim(mensaje)) between 5 and 300),
+  creado_en  timestamptz not null default now()
+);
+create index avisos_placa_idx on public.avisos_placa (placa_id, autor_id, creado_en desc);
+
+-- ---------------------------------------------------------------------
+-- jornadas_busqueda y jornada_asistentes (mejora: convocar una búsqueda).
+-- Sin acceso directo: se leen con jornadas_caso() y se escriben con sus RPC.
+-- ---------------------------------------------------------------------
+create table public.jornadas_busqueda (
+  id             uuid primary key default gen_random_uuid(),
+  caso_id        uuid not null references public.casos (id) on delete cascade,
+  organizador_id uuid not null references public.perfiles (id) on delete cascade,
+  inicia_en      timestamptz not null,
+  punto_texto    text not null check (char_length(btrim(punto_texto)) between 4 and 120),
+  nota           text check (nota is null or char_length(nota) <= 300),
+  cancelada      boolean not null default false,
+  creado_en      timestamptz not null default now()
+);
+create index jornadas_caso_idx on public.jornadas_busqueda (caso_id, inicia_en);
+
+create table public.jornada_asistentes (
+  jornada_id uuid not null references public.jornadas_busqueda (id) on delete cascade,
+  perfil_id  uuid not null references public.perfiles (id) on delete cascade,
+  creado_en  timestamptz not null default now(),
+  primary key (jornada_id, perfil_id)
+);
 
 -- Tiempo real para la campana de notificaciones
 alter publication supabase_realtime add table public.notificaciones;

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Boton, BotonEnlace } from '../componentes/Boton';
 import { AreaTexto, Campo, Selector } from '../componentes/Campo';
 import { FormularioPerfil } from '../componentes/FormularioPerfil';
@@ -270,6 +270,12 @@ export function Reportar() {
         <Boton ancho tamano="lg" variante={perdidas.length === 0 ? 'primario' : 'secundario'} onClick={() => elegir(null)}>
           No es ninguna de estas — describir al animal
         </Boton>
+        <p className="mt-3 text-center text-sm text-suave">
+          ¿Tienes una foto?{' '}
+          <Link to="/buscar-foto" className="font-semibold text-acento hover:underline">
+            Compárala con los casos abiertos
+          </Link>
+        </p>
       </div>
     );
   }

@@ -189,3 +189,44 @@ export const IconoFoto = (p: PropsIcono) => (
     <path d="M21 17l-5-5-9 8" />
   </Icono>
 );
+export const IconoQR = (p: PropsIcono) => (
+  <Icono {...p}>
+    <rect x="3" y="3" width="7" height="7" rx="1" />
+    <rect x="14" y="3" width="7" height="7" rx="1" />
+    <rect x="3" y="14" width="7" height="7" rx="1" />
+    <path d="M14 14h3v3h-3zM20 14v1M14 20h1M17 20h4v-3" />
+  </Icono>
+);
+export const IconoSubir = (p: PropsIcono) => (
+  <Icono {...p}>
+    <path d="M12 16V4M7 9l5-5 5 5" />
+    <path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" />
+  </Icono>
+);
+export const IconoDescargar = (p: PropsIcono) => (
+  <Icono {...p}>
+    <path d="M12 4v12M7 11l5 5 5-5" />
+    <path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" />
+  </Icono>
+);
+export const IconoCompartir = (p: PropsIcono) => (
+  <Icono {...p}>
+    <circle cx="18" cy="5" r="2.5" />
+    <circle cx="6" cy="12" r="2.5" />
+    <circle cx="18" cy="19" r="2.5" />
+    <path d="M8.2 10.8l7.6-4.4M8.2 13.2l7.6 4.4" />
+  </Icono>
+);
+export const IconoMensaje = (p: PropsIcono) => (
+  <Icono {...p}>
+    <path d="M4 20l1.3-3.9A8 8 0 1 1 8 19.1z" />
+    <path d="M9 10h6M9 13.5h4" />
+  </Icono>
+);
+export const IconoRuta = (p: PropsIcono) => (
+  <Icono {...p}>
+    <circle cx="6" cy="19" r="2" />
+    <circle cx="18" cy="5" r="2" />
+    <path d="M8 19h7.5a3.5 3.5 0 0 0 0-7h-7a3.5 3.5 0 0 1 0-7H16" />
+  </Icono>
+);

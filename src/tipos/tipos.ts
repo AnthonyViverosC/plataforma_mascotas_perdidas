@@ -1,4 +1,4 @@
-export type Rol = 'PROPIETARIO' | 'CIUDADANO' | 'VETERINARIO' | 'ADMIN';
+export type Rol = 'PROPIETARIO' | 'CIUDADANO' | 'VETERINARIO' | 'COORDINADOR' | 'ADMIN';
 export type Especie = 'PERRO' | 'GATO' | 'OTRO';
 export type Tamano = 'PEQUENO' | 'MEDIANO' | 'GRANDE';
 export type Sexo = 'MACHO' | 'HEMBRA' | 'DESCONOCIDO';
@@ -26,7 +26,8 @@ export type TipoEvento =
   | 'CAMBIO_DATOS'
   | 'CAMBIO_ESTADO'
   | 'RADIO_AMPLIADO'
-  | 'CIERRE';
+  | 'CIERRE'
+  | 'JORNADA';
 
 export interface Perfil {
   id: string;
@@ -118,7 +119,13 @@ export interface Reporte {
   nota: string | null;
   foto_url: string;
   creado_en: string;
+  /** 'WHATSAPP' cuando un coordinador de fundación lo importó de un grupo (HU-07). */
+  origen: OrigenReporte;
+  origen_nombre: string | null;
+  origen_ref: string | null;
 }
+
+export type OrigenReporte = 'APP' | 'WHATSAPP';
 
 export interface LecturaMicrochip {
   id: string;
@@ -136,6 +143,52 @@ export interface LecturaMicrochip {
   motivo_anulacion: string | null;
   anulada_en: string | null;
   creado_en: string;
+}
+
+export type EstadoPlaca = 'SOLICITADA' | 'EN_PRODUCCION' | 'ENVIADA' | 'ENTREGADA' | 'CANCELADA';
+
+/** Pedido de una placa con código QR (HU-11). */
+export interface PlacaQR {
+  id: string;
+  codigo: string;
+  mascota_id: string;
+  solicitante_id: string;
+  estado: EstadoPlaca;
+  nombre_envio: string;
+  direccion_envio: string;
+  ciudad: string;
+  telefono_envio: string;
+  notas: string | null;
+  creado_en: string;
+  actualizado_en: string;
+}
+
+/** Lo que devuelve placa_publica(): nunca incluye teléfono ni datos reservados. */
+/** Fila de jornadas_caso(): una jornada de búsqueda convocada por el dueño. */
+export interface Jornada {
+  id: string;
+  inicia_en: string;
+  punto_texto: string;
+  nota: string | null;
+  cancelada: boolean;
+  organizador: string;
+  asistentes: number;
+  yo_asisto: boolean;
+  es_mia: boolean;
+}
+
+export interface PlacaPublica {
+  codigo: string;
+  mascota_nombre: string;
+  especie: Especie;
+  raza: string | null;
+  color_principal: string;
+  tamano: Tamano;
+  temperamento: Temperamento;
+  nota_manejo: string | null;
+  foto_url: string | null;
+  /** Caso de pérdida abierto de la mascota, si lo hay. */
+  caso_id: string | null;
 }
 
 export type Criterio = 'MICROCHIP' | 'DISTANCIA' | 'TIEMPO' | 'RAZA' | 'COLOR' | 'TAMANO' | 'SEXO';
@@ -264,7 +317,16 @@ export const ETIQUETA_ROL: Record<Rol, string> = {
   PROPIETARIO: 'Propietario',
   CIUDADANO: 'Ciudadano',
   VETERINARIO: 'Auxiliar veterinario',
+  COORDINADOR: 'Coordinador de fundación',
   ADMIN: 'Administrador',
+};
+
+export const ETIQUETA_ESTADO_PLACA: Record<EstadoPlaca, string> = {
+  SOLICITADA: 'Solicitada',
+  EN_PRODUCCION: 'En producción',
+  ENVIADA: 'Enviada',
+  ENTREGADA: 'Entregada',
+  CANCELADA: 'Cancelada',
 };
 
 export const ETIQUETA_ESPECIE: Record<Especie, string> = {
